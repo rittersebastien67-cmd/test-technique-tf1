@@ -1,0 +1,37 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Gateway.Bff/Gateway.Bff.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/SharedKernel/SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/Assistant/">
+    <Project Path="src/Services/Assistant/Assistant.Api/Assistant.Api.csproj" />
+    <Project Path="src/Services/Assistant/Assistant.Application/Assistant.Application.csproj" />
+    <Project Path="src/Services/Assistant/Assistant.Domain/Assistant.Domain.csproj" />
+    <Project Path="src/Services/Assistant/Assistant.Infrastructure/Assistant.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/HrAdministration/">
+    <Project Path="src/Services/HrAdministration/HrAdministration.Api/HrAdministration.Api.csproj" />
+    <Project Path="src/Services/HrAdministration/HrAdministration.Application/HrAdministration.Application.csproj" />
+    <Project Path="src/Services/HrAdministration/HrAdministration.Contracts/HrAdministration.Contracts.csproj" />
+    <Project Path="src/Services/HrAdministration/HrAdministration.Domain/HrAdministration.Domain.csproj" />
+    <Project Path="src/Services/HrAdministration/HrAdministration.Infrastructure/HrAdministration.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Payroll/">
+    <Project Path="src/Services/Payroll/Payroll.Application/Payroll.Application.csproj" />
+    <Project Path="src/Services/Payroll/Payroll.Domain/Payroll.Domain.csproj" />
+    <Project Path="src/Services/Payroll/Payroll.Infrastructure/Payroll.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
+    <Project Path="tests/Assistant.Application.Tests/Assistant.Application.Tests.csproj" />
+    <Project Path="tests/Assistant.Domain.Tests/Assistant.Domain.Tests.csproj" />
+    <Project Path="tests/HrAdministration.Api.Tests/HrAdministration.Api.Tests.csproj" />
+    <Project Path="tests/HrAdministration.Application.Tests/HrAdministration.Application.Tests.csproj" />
+    <Project Path="tests/HrAdministration.Domain.Tests/HrAdministration.Domain.Tests.csproj" />
+    <Project Path="tests/HrAdministration.Infrastructure.Tests/HrAdministration.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Payroll.Application.Tests/Payroll.Application.Tests.csproj" />
+  </Folder>
+</Solution>

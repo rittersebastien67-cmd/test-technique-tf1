@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Services/Payroll/Payroll.Application/Payroll.Application.csproj" />
+  </ItemGroup>
+
+</Project>

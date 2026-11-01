@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/AppHost/AppHost.csproj" />
     <Project Path="src/Gateway.Bff/Gateway.Bff.csproj" />
+    <Project Path="src/ServiceDefaults/ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/SharedKernel/SharedKernel.csproj" />

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../Assistant.Domain/Assistant.Domain.csproj" />
+    <ProjectReference Include="../../HrAdministration/HrAdministration.Contracts/HrAdministration.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

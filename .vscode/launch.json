@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Back-end (AppHost)",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/AppHost/AppHost.csproj"
+    },
+    {
+      "name": "Front-end (Brave)",
+      "type": "chrome",
+      "request": "launch",
+      "runtimeExecutable": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+      "url": "https://localhost:7100",
+      "webRoot": "${workspaceFolder}/web"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Application (back + front)",
+      "configurations": ["Back-end (AppHost)", "Front-end (Brave)"],
+      "stopAll": true
+    }
+  ]
+}

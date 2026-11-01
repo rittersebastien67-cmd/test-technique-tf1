@@ -80,7 +80,7 @@ Même avec ces coupes, J2 reste chargé. Si la marge manque, on reporte en prior
 
 | ID | Ticket | Taille | Lot | Dépend de | Réf. | Critères d'acceptation |
 |---|---|---|---|---|---|---|
-| T04 | Calendrier férié et qualification des jours | M | J1 | T01 | R2, R11, D45 | `PublicHolidayCalendar` : `General` (11 jours) et `AlsaceMoselle` (13 jours, Pâques calculée, Vendredi saint et 26 décembre). `CalendarResolver` (57, 67, 68). `WorkSchedule` (`FullTime5Days`, `PartTime80`). `DayQualifier`. Tests sur 2026 et 2027. |
+| T04 | Calendrier férié et qualification des jours | M | J1 | T01 | R2, R11, D45 | `PublicHolidayCalendar` : `General` (11 jours) et `AlsaceMoselle` (13 jours, Vendredi saint et 26 décembre). Pâques en table, de 2025 à 2030. `CalendarResolver` (57, 67, 68). `WorkSchedule` (`FullTime5Days`, `PartTime80`). `DayQualifier`. Tests sur 2026 et 2027. |
 | T05 | Value objects de la demande | S | J1 | T01 | R1, R6 | `LeavePeriod`, `PeriodBound`, `HalfDay` (Après-midi→Matin invalide le même jour). `LeaveType` avec `IsSensitive`. `Comment` limité à 200 caractères et refusé pour `SickLeave`. |
 | T06 | Politique de décompte | M | J1 | T04, T05 | R2, D39, D40, A8 | Décompte en jours ouvrés par pas de 0,5. Décompte légal des CP à temps partiel : les **5 lignes du tableau 4.1 du PRD** sont rejouées, dont mardi après-midi = 0,5 j. Maladie et Sans solde en jours travaillés. Durée nulle invalide. |
 | T07 | Agrégat `LeaveBalance` (event-sourcé) | M | J1 | T01 | R3, R9, AD30 | Événements `EntitlementGranted`, `DaysDeducted`, `DaysCredited`. `Acquired`, `Taken` et `Planned` selon `IClock`, `Available`. Solde insuffisant refusé. Un JRTT ne vaut que pour l'année civile. Une seule déduction par demande. Tests *given / when / then*. |

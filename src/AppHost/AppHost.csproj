@@ -1,0 +1,21 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>0d21527f-a19d-4c49-95dd-5d5fe40c0ce1</UserSecretsId>
+    <!-- Orchestrator and dashboard come from NuGet so `dotnet run` works without the Aspire CLI. -->
+    <AspireUseCliBundle>false</AspireUseCliBundle>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Services/HrAdministration/HrAdministration.Api/HrAdministration.Api.csproj" />
+    <ProjectReference Include="../Services/Assistant/Assistant.Api/Assistant.Api.csproj" />
+    <ProjectReference Include="../Gateway.Bff/Gateway.Bff.csproj" />
+  </ItemGroup>
+
+</Project>

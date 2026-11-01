@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="../HrAdministration.Application/HrAdministration.Application.csproj" />
     <ProjectReference Include="../HrAdministration.Infrastructure/HrAdministration.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\ServiceDefaults\ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

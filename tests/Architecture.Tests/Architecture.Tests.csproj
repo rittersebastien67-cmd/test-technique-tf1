@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/BuildingBlocks/SharedKernel/SharedKernel.csproj" />
+    <ProjectReference Include="../../src/Services/HrAdministration/HrAdministration.Api/HrAdministration.Api.csproj" />
+    <ProjectReference Include="../../src/Services/Assistant/Assistant.Api/Assistant.Api.csproj" />
+    <ProjectReference Include="../../src/Services/Payroll/Payroll.Infrastructure/Payroll.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Gateway.Bff/Gateway.Bff.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Services/HrAdministration/HrAdministration.Domain/HrAdministration.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

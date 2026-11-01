@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="NetArchTest.eNhancedEdition" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../src/BuildingBlocks/SharedKernel/SharedKernel.csproj" />
     <ProjectReference Include="../../src/Services/HrAdministration/HrAdministration.Api/HrAdministration.Api.csproj" />
     <ProjectReference Include="../../src/Services/Assistant/Assistant.Api/Assistant.Api.csproj" />

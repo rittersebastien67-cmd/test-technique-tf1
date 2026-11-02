@@ -124,7 +124,7 @@ Il contient seulement `AggregateRoot`, `Entity`, `IDomainEvent` et `Result`, san
 - `data` et `metadata`, en JSONB ;
 - `recorded_at`.
 
-La contrainte **unique (stream_id, version)** assure la concurrence optimiste. Il n'y a jamais d'`UPDATE` ni de `DELETE` : l'event store **est** le journal d'audit (AD42, C17).
+La contrainte **unique (stream_id, version)**, portée par la clé primaire, assure la concurrence optimiste : une version déjà prise donne l'erreur `concurrency.conflict` (409). Il n'y a jamais d'`UPDATE` ni de `DELETE` : l'event store **est** le journal d'audit (AD42, C17). Le port `IEventStore` ne sait que lire et ajouter, et des triggers PostgreSQL refusent `UPDATE`, `DELETE` et `TRUNCATE` sur la table.
 
 Les **métadonnées** de chaque événement contiennent :
 - l'acteur : `employee` ou `agent`, selon la portée du jeton ;
@@ -164,7 +164,7 @@ Aucune saga n'est nécessaire.
 - En V2, l'effacement RGPD passera par du *crypto-shredding*.
 
 #### Schéma et données de démonstration (AD51)
-- Migrations EF Core versionnées, appliquées au démarrage en développement.
+- Migrations EF Core versionnées, appliquées au démarrage en développement : l'AppHost le demande avec `Database__MigrateOnStartup`.
 - Seed idempotent, qui passe par **le même chemin que l'application**. Il crée :
   - la fiche RH des employés de démonstration (PRD, R8) ;
   - les événements `EntitlementGranted`, avec les valeurs de R8, pour 2026 et 2027, et `CurrentYearOnly` pour les JRTT du forfait jours ;
@@ -430,6 +430,7 @@ sequenceDiagram
 | `jrtt.outside_year` | R9 |
 | `request.invalid_status` | Statut incompatible avec l'opération (par exemple, `PUT` sur une demande soumise) |
 | `scope.agent_forbidden` | C11 |
+| `concurrency.conflict` | Un flux a changé depuis sa lecture : deux écritures simultanées sur une demande, un compteur ou l'agenda d'un employé (AD60) |
 
 - **Avertissement** `declaration.late` (R5) : il est renvoyé dans `warnings[]` d'une réponse 200 ou 201. Ce n'est jamais une erreur (AD29).
 
@@ -488,13 +489,13 @@ docs/  PRD.md  ARCHITECTURE.md
 
 ## 9. Stratégie de tests
 
-Tous les tests unitaires s'exécutent **sans clé d'API ni réseau**. Les tests d'infrastructure sont isolés dans leur propre projet, car ils demandent Docker.
+Tous les tests unitaires s'exécutent **sans clé d'API ni réseau**. Les tests d'infrastructure sont isolés dans leur propre projet.
 
 | Niveau | Contenu |
 |---|---|
 | **Architecture** (ArchUnitNET ou NetArchTest) | Domain ne dépend que du SharedKernel : ni EF Core, ni ASP.NET, ni Microsoft.Extensions.AI. Application ne dépend pas d'Infrastructure. `HrCalendar` ne référence ni `Leaves` ni `Balances`. Aucun module du Domain de HrAdministration ne référence un autre module. Assistant ne référence que `HrAdministration.Contracts`. Payroll ne référence que `HrAdministration.Contracts` et n'expose aucune route. Le SharedKernel reste minimal. Les événements de domaine ne dépendent pas de la sérialisation. Aucun contrôleur n'expose de `DELETE` sur les demandes. |
 | **Domaine HrAdministration** (xUnit, sans base) | Une suite par règle, de R1 à R11. Le tableau 4.1 du PRD (temps partiel) est rejoué. Les agrégats event-sourcés sont testés en *given / when / then* : événements passés → commande → événements produits ou erreur. Cas limites : R3 (CP ou RTT à cheval sur deux années), R5 (plus de 48 h), R9 (deux années), R10 (arrêt au milieu d'un congé). `HrCalendar` : jours fériés 2026 et 2027, Vendredi saint, 26 décembre, départements 57, 67 et 68, temps partiel. `LeaveBalance` : jours pris et planifiés selon la date du jour, recrédit, idempotence. Annulation d'un brouillon et d'une demande soumise. Conformité du seed à R8. |
-| **Event store** (store en mémoire, sans Docker) | Conflit de version (409). Deux soumissions simultanées d'un même employé : une seule aboutit, l'autre reçoit un 409. Égalité entre projections reconstruites et projections inline. Seed idempotent. Les tests Testcontainers PostgreSQL sont une piste V2 (AD56, coupe K3). |
+| **Event store** (SQLite en mémoire, sans Docker : la vraie table, sa clé et ses transactions ; le SQL propre à PostgreSQL est contrôlé dans le script de migration) | Conflit de version (409). Ajout dans plusieurs flux : tout ou rien. Format des événements stockés. Deux soumissions simultanées d'un même employé : une seule aboutit, l'autre reçoit un 409. Égalité entre projections reconstruites et projections inline. Seed idempotent. Les tests Testcontainers PostgreSQL sont une piste V2 (AD56, coupe K3). |
 | **API HrAdministration** (`WebApplicationFactory`) | Les 11 routes. Format ProblemDetails. Warnings renvoyés en 200 ou 201. 404 sur la ressource d'un autre employé. Liste blanche de la portée `agent` : `POST` et `PUT` d'un brouillon d'origine `Agent` autorisés, toute autre route en 403. La soumission déduit le solde une seule fois, même si elle est rejouée. `hr-record` ne renvoie que l'identité. |
 | **Assistant** | `IChatClient` simulé et scripté, `IHrAdministrationClient` simulé. Workflow des 4 tools : `POST` au premier tour, puis `PUT`. Aucun identifiant ni aucune identité envoyés au LLM. Le client ne propose que `POST` et `PUT`. 11ᵉ tour refusé. Messages fixes A1 et A9. Purge par `closure` et à 30 jours. Aucun contenu dans les journaux (vérifié avec un logger de test). |
 | **Payroll** | Seuls `UnpaidLeave` et `SickLeave` sont retenus. Idempotence : un même événement rejoué ne crée pas de doublon. |

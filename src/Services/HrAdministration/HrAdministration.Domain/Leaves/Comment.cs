@@ -7,7 +7,8 @@ public sealed record Comment
 {
     public const int MaxLength = 200;
 
-    private Comment(string text)
+    /// <summary>Skips the rules of <see cref="Create"/>: a comment that is already in a stream must still replay if the rules change.</summary>
+    internal Comment(string text)
     {
         Text = text;
     }

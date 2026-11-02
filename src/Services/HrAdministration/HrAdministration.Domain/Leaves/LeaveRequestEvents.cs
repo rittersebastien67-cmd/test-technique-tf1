@@ -37,3 +37,23 @@ public sealed record LeaveRequestSubmitted(
 
 /// <summary>Withdraws a draft or a submitted request (R7). The request stays in the stream with its history (C17).</summary>
 public sealed record LeaveRequestCancelled(Guid LeaveRequestId) : IDomainEvent;
+
+/// <summary>A sick leave overlaps the request (R10). It stays in the stream with its last bounds (C17), and what is left of it is carried over.</summary>
+public sealed record LeaveRequestSuperseded(Guid LeaveRequestId) : IDomainEvent;
+
+/// <summary>
+/// Opens the stream of a new submitted request, for what a sick leave left of <paramref name="SourceRequestId"/> (R10).
+/// It is not a submission: no draft comes before it, and it carries what the source request had.
+/// </summary>
+public sealed record LeaveRequestCarriedOver(
+    Guid LeaveRequestId,
+    Guid SourceRequestId,
+    Guid EmployeeId,
+    Origin Origin,
+    LeaveType Type,
+    PeriodBound Start,
+    PeriodBound End,
+    Comment? Comment,
+    CountedDuration Duration,
+    IReadOnlyList<Flag> Flags,
+    IReadOnlyList<Warning> Warnings) : IDomainEvent;

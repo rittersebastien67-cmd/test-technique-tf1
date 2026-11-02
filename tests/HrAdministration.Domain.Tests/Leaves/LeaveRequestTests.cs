@@ -9,6 +9,9 @@ public sealed class LeaveRequestTests
     private static readonly Guid Request = Guid.NewGuid();
     private static readonly Guid Employee = Guid.NewGuid();
 
+    // The new request holding what a sick leave left of Request.
+    private static readonly Guid RemainingRequest = Guid.NewGuid();
+
     private static readonly ILeaveCalendar Calendar = FakeLeaveCalendar.FullTime();
 
     // A Monday.
@@ -474,6 +477,142 @@ public sealed class LeaveRequestTests
         Assert.Empty(request.UncommittedEvents);
     }
 
+    // Sick leave override (R10): the decision comes from SickLeaveOverridePolicy.
+
+    [Fact]
+    public void Superseding_ends_the_request_and_keeps_its_bounds()
+    {
+        var request = Given(Drafted(NextWeek), Submitted());
+
+        var result = request.Supersede();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal([new LeaveRequestSuperseded(Request)], request.UncommittedEvents);
+        Assert.Equal(LeaveRequestStatus.Superseded, request.Status);
+        Assert.Equal(new PeriodBound(NextMonday, HalfDay.Morning), request.Start);
+        Assert.Equal(new PeriodBound(NextFriday, HalfDay.Afternoon), request.End);
+    }
+
+    [Theory]
+    [InlineData(LeaveRequestStatus.Draft)]
+    [InlineData(LeaveRequestStatus.Cancelled)]
+    [InlineData(LeaveRequestStatus.Superseded)]
+    public void Only_a_submitted_request_can_be_superseded(LeaveRequestStatus status)
+    {
+        var request = WithStatus(status);
+
+        Assert.Equal("request.invalid_status", request.Supersede().Error?.Code);
+        Assert.Empty(request.UncommittedEvents);
+    }
+
+    [Fact]
+    public void A_superseded_request_cannot_be_cancelled()
+    {
+        var request = WithStatus(LeaveRequestStatus.Superseded);
+
+        Assert.Equal("request.invalid_status", request.Cancel(Today).Error?.Code);
+    }
+
+    [Fact]
+    public void Carrying_over_opens_a_submitted_request_with_what_the_source_was_carrying()
+    {
+        var content = NextWeek with { Comment = "Vacances en famille", Assumptions = ["YEAR_INFERRED"] };
+        var source = Given(Drafted(content, Origin.Agent), Submitted(), new LeaveRequestSuperseded(Request));
+        var part = Part(NextMonday.AddDays(3), NextFriday);
+
+        var remaining = source.CarryOver(RemainingRequest, part).Value;
+
+        var carriedOver = Assert.IsType<LeaveRequestCarriedOver>(Assert.Single(remaining.UncommittedEvents));
+        Assert.Equal(Request, carriedOver.SourceRequestId);
+        Assert.Equal(RemainingRequest, remaining.Id);
+        Assert.Equal(Employee, remaining.EmployeeId);
+        Assert.Equal(Origin.Agent, remaining.Origin);
+        Assert.Equal(LeaveRequestStatus.Submitted, remaining.Status);
+        Assert.Equal(new LeaveTypePaidLeave(), remaining.Type);
+        Assert.Equal(part.Period.Start, remaining.Start);
+        Assert.Equal(part.Period.End, remaining.End);
+        Assert.Equal(2m, remaining.Duration?.Total);
+        Assert.Equal("Vacances en famille", remaining.Comment?.Text);
+        Assert.Equal([Flag.Uncertainty("YEAR_INFERRED")], remaining.Flags);
+    }
+
+    [Fact]
+    public void Carrying_over_does_not_touch_the_source_request()
+    {
+        var source = WithStatus(LeaveRequestStatus.Superseded);
+
+        source.CarryOver(RemainingRequest, Part(NextMonday, NextMonday.AddDays(1)));
+
+        Assert.Empty(source.UncommittedEvents);
+        Assert.Equal(new PeriodBound(NextFriday, HalfDay.Afternoon), source.End);
+    }
+
+    [Fact]
+    public void A_part_of_a_started_leave_can_start_in_the_past()
+    {
+        var source = WithStatus(LeaveRequestStatus.Superseded);
+        var part = Part(Today.AddDays(-7), Today.AddDays(-5));
+
+        var result = source.CarryOver(RemainingRequest, part);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(part.Period.Start, result.Value.Start);
+    }
+
+    [Theory]
+    [InlineData(LeaveRequestStatus.Draft)]
+    [InlineData(LeaveRequestStatus.Submitted)]
+    [InlineData(LeaveRequestStatus.Cancelled)]
+    public void Only_a_superseded_request_can_be_carried_over(LeaveRequestStatus status)
+    {
+        var result = WithStatus(status).CarryOver(RemainingRequest, Part(NextMonday, NextFriday));
+
+        Assert.Equal("request.invalid_status", result.Error?.Code);
+    }
+
+    [Fact]
+    public void A_remaining_part_that_has_not_started_can_be_cancelled_on_its_own()
+    {
+        var firstDay = NextMonday.AddDays(3);
+        var remaining = WithStatus(LeaveRequestStatus.Superseded).CarryOver(RemainingRequest, Part(firstDay, NextFriday)).Value;
+
+        Assert.True(remaining.Cancel(today: firstDay.AddDays(-1)).IsSuccess);
+        Assert.Equal(LeaveRequestStatus.Cancelled, remaining.Status);
+    }
+
+    [Fact]
+    public void A_remaining_part_that_has_started_cannot_be_cancelled()
+    {
+        var remaining = WithStatus(LeaveRequestStatus.Superseded).CarryOver(RemainingRequest, Part(NextMonday, NextFriday)).Value;
+
+        Assert.Equal("cancellation.leave_started", remaining.Cancel(today: NextMonday).Error?.Code);
+    }
+
+    [Fact]
+    public void A_remaining_part_can_be_superseded_by_another_sick_leave()
+    {
+        var remaining = WithStatus(LeaveRequestStatus.Superseded).CarryOver(RemainingRequest, Part(NextMonday, NextFriday)).Value;
+
+        Assert.True(remaining.Supersede().IsSuccess);
+        Assert.Equal(LeaveRequestStatus.Superseded, remaining.Status);
+    }
+
+    [Fact]
+    public void Replaying_a_remaining_part_gives_the_same_request()
+    {
+        var remaining = WithStatus(LeaveRequestStatus.Superseded).CarryOver(RemainingRequest, Part(NextMonday, NextFriday)).Value;
+
+        var replayed = LeaveRequest.FromHistory(remaining.UncommittedEvents);
+
+        Assert.Equal(RemainingRequest, replayed.Id);
+        Assert.Equal(Employee, replayed.EmployeeId);
+        Assert.Equal(remaining.Start, replayed.Start);
+        Assert.Equal(remaining.End, replayed.End);
+        Assert.Equal(5m, replayed.Duration?.Total);
+        Assert.Equal(LeaveRequestStatus.Submitted, replayed.Status);
+        Assert.Equal(1, replayed.Version);
+    }
+
     // Replay and audit (C17).
 
     [Fact]
@@ -530,6 +669,22 @@ public sealed class LeaveRequestTests
 
     /// <summary>The submission of <see cref="NextWeek"/>, whatever the drafted content: only the status matters to the tests using it.</summary>
     private static LeaveRequestSubmitted Submitted() => new(Request, Draft(NextWeek).Duration!, []);
+
+    /// <summary>What a sick leave leaves of a paid leave, as <see cref="SickLeaveOverridePolicy"/> would give it.</summary>
+    private static LeavePart Part(DateOnly first, DateOnly last)
+    {
+        var period = LeavePeriod.Create(new PeriodBound(first, HalfDay.Morning), new PeriodBound(last, HalfDay.Afternoon)).Value;
+
+        return new LeavePart(period, CountingPolicy.Count(period, new LeaveTypePaidLeave(), Calendar).Value);
+    }
+
+    private static LeaveRequest WithStatus(LeaveRequestStatus status) => status switch
+    {
+        LeaveRequestStatus.Draft => Given(Drafted(NextWeek)),
+        LeaveRequestStatus.Submitted => Given(Drafted(NextWeek), Submitted()),
+        LeaveRequestStatus.Cancelled => Given(Drafted(NextWeek), new LeaveRequestCancelled(Request)),
+        _ => Given(Drafted(NextWeek), Submitted(), new LeaveRequestSuperseded(Request)),
+    };
 
     private static LeaveRequest Given(params IDomainEvent[] history) => LeaveRequest.FromHistory(history);
 }

@@ -97,6 +97,27 @@ public sealed class LeaveBalance : AggregateRoot<LeaveBalanceId>
         Raise(new DaysCredited(leaveRequestId, days));
     }
 
+    /// <summary>
+    /// Reserves a part that a sick leave left of a request, once the request is credited (R10). These days were already granted, so R3 and R9
+    /// are not checked again: a JRTT of last year must not block a sick leave. Without the credit first, days are missing: this is a bug in the caller.
+    /// </summary>
+    public void DeductCarriedOver(Guid leaveRequestId, decimal days, DateOnly firstDay)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(days);
+
+        if (_reservations.ContainsKey(leaveRequestId))
+        {
+            return;
+        }
+
+        if (days > Available)
+        {
+            throw new InvalidOperationException("Cannot carry over days that the overridden leave request has not given back.");
+        }
+
+        Raise(new DaysDeducted(leaveRequestId, days, firstDay));
+    }
+
     protected override void Apply(IDomainEvent domainEvent)
     {
         switch (domainEvent)

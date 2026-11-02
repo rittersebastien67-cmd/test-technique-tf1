@@ -22,4 +22,8 @@ public sealed record LeavePeriod
         start.CompareTo(end) > 0
             ? LeaveErrors.PeriodInvalid
             : new LeavePeriod(start, end);
+
+    /// <summary>Whether a half-day is shared with these bounds, which are not a <see cref="LeavePeriod"/> as they can come from a draft (A3).</summary>
+    public bool Overlaps(PeriodBound start, PeriodBound end) =>
+        start.CompareTo(End) <= 0 && Start.CompareTo(end) <= 0;
 }

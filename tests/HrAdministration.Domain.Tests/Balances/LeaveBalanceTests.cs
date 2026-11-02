@@ -498,6 +498,83 @@ public sealed class LeaveBalanceTests
         Assert.Throws<ArgumentOutOfRangeException>(() => balance.Credit(Request, days));
     }
 
+    // Part carried over after a sick leave override (R10).
+
+    [Fact]
+    public void Carrying_over_reserves_the_days_on_the_first_day_of_the_part()
+    {
+        var firstDay = NextWeek.AddDays(3);
+        var balance = Given(
+            new EntitlementGranted(PaidLeave2026, 25m, false),
+            new DaysDeducted(OtherRequest, 5m, NextWeek),
+            new DaysCredited(OtherRequest, 5m));
+
+        balance.DeductCarriedOver(Request, 2m, firstDay);
+
+        Assert.Equal([new DaysDeducted(Request, 2m, firstDay)], balance.UncommittedEvents);
+        Assert.Equal(2m, balance.Planned(NextWeek));
+        Assert.Equal(2m, balance.Taken(firstDay));
+    }
+
+    [Fact]
+    public void A_counter_of_the_current_year_accepts_a_part_after_its_year_is_over()
+    {
+        var balance = Given(
+            new EntitlementGranted(Rtt2026, 10m, true),
+            new DaysDeducted(OtherRequest, 3m, new DateOnly(2026, 12, 29)),
+            new DaysCredited(OtherRequest, 3m));
+
+        balance.DeductCarriedOver(Request, 1m, new DateOnly(2026, 12, 31));
+
+        Assert.Equal(1m, balance.Reserved);
+    }
+
+    [Fact]
+    public void A_part_carried_over_again_raises_nothing()
+    {
+        var balance = Given(
+            new EntitlementGranted(PaidLeave2026, 25m, false),
+            new DaysDeducted(Request, 2m, NextWeek));
+
+        balance.DeductCarriedOver(Request, 2m, NextWeek);
+
+        Assert.Empty(balance.UncommittedEvents);
+        Assert.Equal(2m, balance.Reserved);
+    }
+
+    [Fact]
+    public void A_part_can_be_credited_like_any_request()
+    {
+        var balance = Given(
+            new EntitlementGranted(PaidLeave2026, 25m, false),
+            new DaysDeducted(Request, 2m, NextWeek));
+
+        balance.Credit(Request, 2m);
+
+        Assert.Equal(25m, balance.Available);
+    }
+
+    [Fact]
+    public void Carrying_over_before_the_credit_is_a_bug()
+    {
+        var balance = Given(
+            new EntitlementGranted(PaidLeave2026, 5m, false),
+            new DaysDeducted(OtherRequest, 5m, NextWeek));
+
+        Assert.Throws<InvalidOperationException>(() => balance.DeductCarriedOver(Request, 2m, NextWeek));
+        Assert.Empty(balance.UncommittedEvents);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Carrying_over_no_day_is_a_bug(int days)
+    {
+        var balance = Given(new EntitlementGranted(PaidLeave2026, 25m, false));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => balance.DeductCarriedOver(Request, days, NextWeek));
+    }
+
     // Replay.
 
     [Fact]

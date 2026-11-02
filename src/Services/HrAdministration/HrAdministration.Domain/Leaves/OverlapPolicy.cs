@@ -14,7 +14,7 @@ public static class OverlapPolicy
     {
         var overlapped = existingLeaves
             .Where(leave => leave.Status == LeaveRequestStatus.Submitted)
-            .Where(leave => leave.Start.CompareTo(period.End) <= 0 && period.Start.CompareTo(leave.End) <= 0)
+            .Where(leave => period.Overlaps(leave.Start, leave.End))
             .MinBy(leave => leave.Start);
 
         return overlapped is null

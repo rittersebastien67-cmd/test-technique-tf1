@@ -10,7 +10,8 @@ var assistantDb = postgres.AddDatabase("assistant-db", databaseName: "assistant"
 
 var hrAdministration = builder.AddProject<Projects.HrAdministration_Api>("hr-administration")
     .WithReference(hrAdministrationDb)
-    .WaitFor(hrAdministrationDb);
+    .WaitFor(hrAdministrationDb)
+    .WithEnvironment("Database__MigrateOnStartup", "true");
 
 var assistant = builder.AddProject<Projects.Assistant_Api>("assistant")
     .WithReference(assistantDb)

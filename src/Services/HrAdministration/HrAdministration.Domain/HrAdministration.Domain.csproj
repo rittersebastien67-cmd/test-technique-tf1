@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Only the event store rebuilds a value object from what it stored, without its rules. -->
+    <InternalsVisibleTo Include="HrAdministration.Infrastructure" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../../BuildingBlocks/SharedKernel/SharedKernel.csproj" />
   </ItemGroup>
 

@@ -31,6 +31,25 @@ public sealed class HrAdministrationModuleTests
         ArchAssert.Passes(result, $"{layer}.HrCalendar must not know Employees, Balances nor Leaves.");
     }
 
+    public static TheoryData<string> DomainModules => new(Modules);
+
+    /// <summary>Modules only communicate through the Application layer (section 1), so no Domain module knows another one.</summary>
+    [Theory]
+    [MemberData(nameof(DomainModules))]
+    public void Domain_modules_do_not_depend_on_each_other(string module)
+    {
+        var domain = $"HrAdministration.{Domain}";
+
+        var result = Types.InAssembly(LoadAssembly(domain))
+            .That()
+            .ResideInNamespaceMatching(ModuleNamespacePattern(domain, module))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. Modules.Where(other => other != module).Select(other => $"{domain}.{other}")])
+            .GetResult();
+
+        ArchAssert.Passes(result, $"{domain}.{module} must not know the other Domain modules.");
+    }
+
     [Fact]
     public void Domain_types_live_in_a_module()
     {

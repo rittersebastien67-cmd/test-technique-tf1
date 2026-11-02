@@ -88,10 +88,10 @@ Les choix de l'utilisateur ont regroupé dans un seul BC les absences, les droit
 |---|---|
 | `Employees` | Fiche RH : modèle de lecture seedé, sans agrégat (AD55) |
 | `HrCalendar` | Calendriers fériés, horaires, qualification des jours. Ce module ne connaît **ni les types de congé ni les employés**. |
-| `Balances` | Compteurs CP, RTT et JRTT |
+| `Balances` | Compteurs CP et RTT. Les JRTT du forfait jours sont un compteur `Rtt` limité à l'année en cours (AD63). |
 | `Leaves` | Demandes de congé et politiques de règles |
 
-Les modules communiquent in-process par la couche Application. Des tests d'architecture vérifient leurs frontières.
+Les modules communiquent in-process par la couche Application : **aucun module du Domain ne dépend d'un autre** (AD59). Quand un module a besoin d'un autre, il déclare un port, que la couche Application implémente. Des tests d'architecture vérifient leurs frontières.
 
 ### Shared Kernel minimal
 Il contient seulement `AggregateRoot`, `Entity`, `IDomainEvent` et `Result`, sans aucun concept métier (AD10). Un test d'architecture contrôle sa taille.
@@ -136,9 +136,11 @@ Les **métadonnées** de chaque événement contiennent :
 |---|---|---|
 | `leave-request-{id}` | `LeaveRequestDrafted`, `LeaveRequestUpdated`, `LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestShortened`, `LeaveRequestSplit`, `LeaveRequestSuperseded` | Cycle de vie d'une demande |
 | `balance-{employee}-{type}-{year}` | `EntitlementGranted`, `DaysDeducted`, `DaysCredited` | Registre dont on déduit le compteur courant (AD30) |
+| `agenda-{employee}` | `LeaveRequestSubmissionRecorded` (identifiant de la demande seulement) | Garde de concurrence de R4 et R10 : sérialise les soumissions d'un même employé (AD60) |
 
 **Écriture.** Une soumission écrit dans **une seule transaction EF Core** :
 - les événements de la demande ;
+- l'événement du flux `agenda-{employee}`, avec la version lue **avant** le contrôle de R4 et R10 ;
 - ceux du compteur ;
 - ceux des demandes écrasées (R10) ;
 - les éléments de paie, écrits par le BC Payroll à partir des événements d'intégration distribués in-process, dans la même transaction (AD57).
@@ -165,7 +167,7 @@ Aucune saga n'est nécessaire.
 - Migrations EF Core versionnées, appliquées au démarrage en développement.
 - Seed idempotent, qui passe par **le même chemin que l'application**. Il crée :
   - la fiche RH des employés de démonstration (PRD, R8) ;
-  - les événements `EntitlementGranted`, avec les valeurs de R8, pour 2026 et 2027 ;
+  - les événements `EntitlementGranted`, avec les valeurs de R8, pour 2026 et 2027, et `CurrentYearOnly` pour les JRTT du forfait jours ;
   - des demandes passées (`LeaveRequestDrafted` → `LeaveRequestSubmitted` → `DaysDeducted`), qui donnent des soldes déjà entamés.
 
 ### 2.2 Cohérence
@@ -174,7 +176,7 @@ Aucune saga n'est nécessaire.
 |---|---|---|
 | Soumission (R1 à R11) | Local à HrAdministration, ajout dans plusieurs flux | Transaction unique, sans saga |
 | Compteur courant | Projection du flux `balance-…` et date du jour | Toujours aligné sur les demandes soumises |
-| Concurrence | Version attendue de chaque flux modifié (contrainte unique `stream_id, version`) | Deux écritures concurrentes sur la même demande ou le même compteur ne peuvent pas aboutir toutes les deux (409) |
+| Concurrence | Version attendue de chaque flux modifié (contrainte unique `stream_id, version`) | Deux écritures concurrentes sur la même demande ou le même compteur, ou deux soumissions d'un même employé (flux `agenda-{employee}`, AD60), ne peuvent pas aboutir toutes les deux (409) |
 | Audit (C17) | L'event store | Aucun trou, aucune suppression |
 | Tools de l'Assistant | REST synchrone vers HrAdministration | HrAdministration reste la seule source de vérité |
 | Purge des conversations (C6) | Après la soumission ou l'annulation d'un brouillon d'origine `Agent`, le front appelle `closure` sur la conversation liée. Un job à 30 jours sert de filet. | Pas de bus nécessaire (AD56) |
@@ -191,10 +193,10 @@ sequenceDiagram
     participant DB as PostgreSQL
     E->>BFF: POST /me/leave-requests/{id}/submission (cookie)
     BFF->>HR: même requête + jeton interne (portée employee)
-    HR->>DB: rejoue leave-request-{id}, balance-…
+    HR->>DB: rejoue leave-request-{id}, balance-… et lit la version d'agenda-{employee}
     HR->>HR: politiques R1–R6, R9–R11 (décompte, chevauchement, solde, écrasement)
     HR->>PAY: événements d'intégration (in-process)
-    HR->>DB: 1 transaction : LeaveRequestSubmitted, DaysDeducted, [Shortened/Split/Superseded + DaysCredited], payroll_variable_items
+    HR->>DB: 1 transaction : LeaveRequestSubmitted, LeaveRequestSubmissionRecorded, DaysDeducted, [Shortened/Split/Superseded + DaysCredited], payroll_variable_items
     alt version d'un flux déjà prise
         DB-->>HR: violation unique (stream_id, version)
         HR-->>BFF: 409
@@ -213,7 +215,7 @@ sequenceDiagram
 |---|---|
 | Fiche RH (identité, manager direct) | `EmployeeProfile` (modèle de lecture), `DirectManager` |
 | Horaire, Lieu de travail | `WorkSchedule` (`FullTime5Days`, `PartTime80`), `WorkLocation` (département) |
-| Calendrier férié ; jour ouvré, férié, de week-end, non travaillé | `PublicHolidayCalendar` (`General`, `AlsaceMoselle`) ; `DayKind` (`WorkingDay`, `PublicHoliday`, `Weekend`, `NonWorkingDay`) |
+| Calendrier férié ; jour ouvré, férié, de week-end, non travaillé | `PublicHolidayCalendar` (`General`, `AlsaceMoselle`) ; `DayKind` (`WorkingDay`, `PublicHoliday`, `Weekend`, `NonWorkingDay`), un dans `HrCalendar` et un dans `Leaves` (AD62) |
 | Demande de congé, Période, Borne, Demi-journée | `LeaveRequest`, `LeavePeriod`, `PeriodBound`, `HalfDay` (`Morning`, `Afternoon`) |
 | Type de congé : CP, RTT/JRTT, Maladie, Sans solde | `LeaveType` (abstrait) : `LeaveTypePaidLeave`, `LeaveTypeRtt`, `LeaveTypeSickLeave`, `LeaveTypeUnpaidLeave` |
 | Statut : Brouillon, Soumise, Annulée, Remplacée | `LeaveRequestStatus` : `Draft`, `Submitted`, `Cancelled`, `Superseded` |
@@ -222,6 +224,7 @@ sequenceDiagram
 | Signalement : incertitude, incohérence | `Flag` : `Uncertainty`, `Inconsistency` |
 | Déclaration tardive | `Warning.LateDeclaration` |
 | Compteur : acquis, réservés (pris, planifiés), disponible | `LeaveBalance` : `Acquired`, `Reserved` (`Taken`, `Planned`), `Available` |
+| Compteur de JRTT (forfait jours) | Compteur `Rtt` avec `CurrentYearOnly` (AD63) |
 | Chevauchement, écrasement | `Overlap`, `SickLeaveOverride` |
 | Conversation, tour | `Conversation`, `Turn` |
 
@@ -244,10 +247,10 @@ sequenceDiagram
 
 #### Module `Balances` (event sourcing)
 - Agrégat `LeaveBalance`, reconstitué à partir du flux `balance-{employee}-{type}-{year}`.
-  - **Types** : `PaidLeave`, `Rtt` ou `Jrtt`.
-  - **Contenu** : `Acquired` (issu d'`EntitlementGranted`) et les mouvements `DaysDeducted` et `DaysCredited`, chacun rattaché à une demande.
+  - **Types** : `PaidLeave` ou `Rtt` (AD63).
+  - **Contenu** : `Acquired` et `CurrentYearOnly` (issus d'`EntitlementGranted`) et les mouvements `DaysDeducted` et `DaysCredited`, chacun rattaché à une demande.
   - **Compteur courant** : `Reserved` = `Taken` + `Planned` ; `Available` = `Acquired` − `Reserved`.
-  - **Invariants** : R3 (solde suffisant) et R9 (un solde `Jrtt` ne vaut que pour son année civile). Une seule déduction par demande, ce qui rend l'opération idempotente.
+  - **Invariants** : R3 (solde suffisant) et R9 (un compteur `CurrentYearOnly`, celui des JRTT du forfait jours, ne vaut que pour l'année civile en cours). Une seule déduction par demande, ce qui rend l'opération idempotente.
 - Les **droits acquis** sont seedés directement avec les valeurs de R8, sans contrat ni service de calcul (AD38, AD53).
 
 #### Module `Leaves` (event sourcing)
@@ -267,7 +270,7 @@ sequenceDiagram
 
 - **Aucune suppression** (AD42) : un brouillon est annulé ; une demande soumise est annulée selon R7.
 
-**Ports** : `IEventStore`, `IEmployeeProfileReader`, `IClock`, `ICurrentEmployee`.
+**Ports** : `IEventStore`, `IEmployeeProfileReader`, `IClock`, `ICurrentEmployee`, `ILeaveCalendar` (donne à `Leaves` la nature de chaque jour, avec son propre `DayKind`, implémenté dans l'Application à partir de `HrCalendar`).
 
 ### 3.2 HrAdministration : API
 
@@ -361,7 +364,7 @@ flowchart LR
 | Tool | Paramètres | Routes appelées | Règles |
 |---|---|---|---|
 | `request_paid_leave` | `start`, `start_half_day`, `end`, `end_half_day`, `comment?`, `assumptions[]` | `POST leave-requests` au premier tour, puis `PUT leave-requests/{id}` | R1 à R6, R11 (y compris le temps partiel, A8) |
-| `request_rtt` | idem | idem | R3 sur le solde RTT ou JRTT, plus **R9** |
+| `request_rtt` | idem | idem | R3 sur le solde RTT, plus **R9** si le compteur est `CurrentYearOnly` |
 | `request_unpaid_leave` | idem | idem | Pas de R3 ; seuls les jours travaillés comptent (D39) |
 | `declare_sick_leave` | bornes, demi-journées, `assumptions[]`. **Pas de `comment`** (C1, C2, C15) | idem | R5 ; aperçu de R10 (A7) |
 
@@ -484,9 +487,9 @@ Tous les tests unitaires s'exécutent **sans clé d'API ni réseau**. Les tests 
 
 | Niveau | Contenu |
 |---|---|
-| **Architecture** (ArchUnitNET ou NetArchTest) | Domain ne dépend que du SharedKernel : ni EF Core, ni ASP.NET, ni Microsoft.Extensions.AI. Application ne dépend pas d'Infrastructure. `HrCalendar` ne référence ni `Leaves` ni `Balances`. Assistant ne référence que `HrAdministration.Contracts`. Payroll ne référence que `HrAdministration.Contracts` et n'expose aucune route. Le SharedKernel reste minimal. Les événements de domaine ne dépendent pas de la sérialisation. Aucun contrôleur n'expose de `DELETE` sur les demandes. |
+| **Architecture** (ArchUnitNET ou NetArchTest) | Domain ne dépend que du SharedKernel : ni EF Core, ni ASP.NET, ni Microsoft.Extensions.AI. Application ne dépend pas d'Infrastructure. `HrCalendar` ne référence ni `Leaves` ni `Balances`. Aucun module du Domain de HrAdministration ne référence un autre module. Assistant ne référence que `HrAdministration.Contracts`. Payroll ne référence que `HrAdministration.Contracts` et n'expose aucune route. Le SharedKernel reste minimal. Les événements de domaine ne dépendent pas de la sérialisation. Aucun contrôleur n'expose de `DELETE` sur les demandes. |
 | **Domaine HrAdministration** (xUnit, sans base) | Une suite par règle, de R1 à R11. Le tableau 4.1 du PRD (temps partiel) est rejoué. Les agrégats event-sourcés sont testés en *given / when / then* : événements passés → commande → événements produits ou erreur. Cas limites : R5 (plus de 48 h), R9 (deux années), R10 (scission). `HrCalendar` : jours fériés 2026 et 2027, Vendredi saint, 26 décembre, départements 57, 67 et 68, temps partiel. `LeaveBalance` : jours pris et planifiés selon la date du jour, recrédit, idempotence. Annulation d'un brouillon et d'une demande soumise. Conformité du seed à R8. |
-| **Event store** (store en mémoire, sans Docker) | Conflit de version (409). Égalité entre projections reconstruites et projections inline. Seed idempotent. Les tests Testcontainers PostgreSQL sont une piste V2 (AD56, coupe K3). |
+| **Event store** (store en mémoire, sans Docker) | Conflit de version (409). Deux soumissions simultanées d'un même employé : une seule aboutit, l'autre reçoit un 409. Égalité entre projections reconstruites et projections inline. Seed idempotent. Les tests Testcontainers PostgreSQL sont une piste V2 (AD56, coupe K3). |
 | **API HrAdministration** (`WebApplicationFactory`) | Les 11 routes. Format ProblemDetails. Warnings renvoyés en 200 ou 201. 404 sur la ressource d'un autre employé. Liste blanche de la portée `agent` : `POST` et `PUT` d'un brouillon d'origine `Agent` autorisés, toute autre route en 403. La soumission déduit le solde une seule fois, même si elle est rejouée. `hr-record` ne renvoie que l'identité. |
 | **Assistant** | `IChatClient` simulé et scripté, `IHrAdministrationClient` simulé. Workflow des 4 tools : `POST` au premier tour, puis `PUT`. Aucun identifiant ni aucune identité envoyés au LLM. Le client ne propose que `POST` et `PUT`. 11ᵉ tour refusé. Messages fixes A1 et A9. Purge par `closure` et à 30 jours. Aucun contenu dans les journaux (vérifié avec un logger de test). |
 | **Payroll** | Seuls `UnpaidLeave` et `SickLeave` sont retenus. Idempotence : un même événement rejoué ne crée pas de doublon. |
@@ -500,7 +503,7 @@ Tous les tests unitaires s'exécutent **sans clé d'API ni réseau**. Les tests 
 | R1, R6 | `LeavePeriod`, `Comment` · `POST` et `PUT leave-requests` |
 | R2, R11 | `CountingPolicy`, `HrCalendar` · `GET calendar/working-days` |
 | R3, R9 | `LeaveBalance` · `GET balances`, `POST balances/simulations`, déduction interne à la soumission |
-| R4, R10 | `OverlapPolicy`, `SickLeaveOverridePolicy` · `GET calendar/leaves`, `GET calendar/sick-leaves` |
+| R4, R10 | `OverlapPolicy`, `SickLeaveOverridePolicy`, flux `agenda-{employee}` · `GET calendar/leaves`, `GET calendar/sick-leaves` |
 | R5 | `BackdatingPolicy`, `Warning.LateDeclaration` |
 | R7 | `POST leave-requests/{id}/cancellation`, `DaysCredited` |
 | R8 | Seed : `EntitlementGranted` et demandes passées |
@@ -598,10 +601,15 @@ Les décisions viennent de la session de conception du 01/11/2026. Chaque décis
 | AD49 | Event store maison sur EF Core | Choix « Event store maison EF Core », qui était la recommandation de l'IA |
 | AD50 | Une base par service, Paie comprise | Choix « Oui, sa propre base », qui était la recommandation de l'IA |
 | AD51 | Migrations EF Core et seed idempotent avec historique | Choix « Migrations + seed », qui était la recommandation de l'IA |
-| AD52 | Flux `agenda-{employee}` comme garde de concurrence. **Supprimé** : la concurrence repose sur la version de chaque flux. Pas de snapshot. | Proposition de l'IA, **refusée** : « il sert a rien » |
+| AD52 | Flux `agenda-{employee}` comme garde de concurrence. **Supprimé** : la concurrence repose sur la version de chaque flux. Pas de snapshot. *Flux rétabli par AD60* | Proposition de l'IA, **refusée** : « il sert a rien » |
 | AD53 | Pas de contrat : droits seedés directement (R8) ; l'horaire et le lieu de travail restent pour R2 et R11 | « le contrat n'est pas nécessaire on a juste besoin de ses compteurs » |
 | AD54 | Rédaction du présent document à partir du brief validé, aligné sur le PRD v1.4 | « tu peux rediger le docs/ARCHITECTURE.md » |
 | AD55 | **Pas d'agrégat employé** : la fiche RH est un modèle de lecture `EmployeeProfile`, alimenté par le seed | Choix « Pas d'agrégat employé », après le refus d'AD24 |
 | AD56 | **Coupes pour tenir en 2 à 3 jours** (BACKLOG K1 à K4) : sessions de la BFF en mémoire ; ni RabbitMQ ni outbox, purge par `closure` et job à 30 jours ; pas de tests Testcontainers ; Angular sur un seul écran avec simulation sur bouton | « on coupe pas de soucis » |
 | AD57 | **Payroll reste un BC distinct, sans API**, hébergé dans le processus de HrAdministration. Il consomme les événements d'intégration in-process, dans la transaction de soumission. | « on peut passer payroll dans le monolith » ; « pas d'api juste un BC différent » |
 | AD58 | **`LeaveType` est une hiérarchie fermée de value objects** : un `record` abstrait et un `record` scellé par type, sans instance statique. Deux instances d'un même type sont égales. Les règles métier restent dans les politiques (AD28). | « pourquoi LeaveType n'est pas un objet abstrait ou une interface qu'implemente LeaveTypeRtt, LeaveTypePaidLeave ? » ; « je prefere la hierarchie », contre la classe scellée recommandée par l'IA ; « supprime les 4 statics readOnly » |
+| AD59 | **Aucun module du Domain ne dépend d'un autre**, dans aucun sens. `Leaves` lit le calendrier par le port `ILeaveCalendar`, implémenté dans l'Application. Un test d'architecture contrôle toutes les paires de modules. *Amendée par AD61, puis rétablie sans exception par AD62* | « pourquoi il y des dependances entre domain.HrCalendar et Domain.Leaves ? pour moi c'est une règle non autorisé » ; « Pars sur ta correction et ajoute un test d'architecture plus large. » |
+| AD60 | **Flux `agenda-{employee}` rétabli comme garde de concurrence de R4 et R10.** Les demandes d'un employé vivent dans des flux séparés : deux soumissions simultanées qui se chevauchent pouvaient donc aboutir toutes les deux. Chaque soumission écrit désormais dans ce flux, avec la version lue avant le contrôle : l'une des deux reçoit un 409. Le flux ne contient que l'identifiant de la demande (C15). Revient sur AD52. | Proposition de l'IA, **validée** : « Ajoute "Flux agenda-{employee} (ma recommandation) : chaque soumission y écrit, donc deux soumissions simultanées d'un même employé entrent en conflit et l'une reçoit un 409. Il réutilise ton mécanisme de version et se teste avec le store en mémoire." » |
+| AD61 | **`Leaves` peut utiliser `DayKind` de `HrCalendar`, et rien d'autre de ce module** : seule exception à AD59. Un même BC partage un même langage : `LeaveDayKind` en était une copie à l'identique et a été supprimé. Le port `ILeaveCalendar` reste, et un test d'architecture limite l'exception à `DayKind`. *Annulée par AD62* | Proposition de l'IA, **validée** (« oui »), contre un `LeaveDayKind` réduit à trois valeurs qui aurait gardé AD59 intacte |
+| AD62 | **`DayKind` est dupliqué dans `HrCalendar` et dans `Leaves`.** Les deux modules restent totalement isolés (AD59, sans exception). La couche Application traduit l'un en l'autre dans `HrCalendarLeaveCalendar`. | « duplique DayKind dans Leaves et HrCalendar », contre le partage recommandé par l'IA (AD61) |
+| AD63 | **Un seul compteur `Rtt`, sans type `Jrtt`.** Dans l'application, RTT et JRTT ne diffèrent que par R9. `EntitlementGranted` porte donc `CurrentYearOnly`, et `LeaveBalance` applique R9 à partir de cette donnée, sans lire de profil sur la fiche RH (D52). Le JRTT reste un terme du PRD, et le code d'erreur `jrtt.outside_year` ne change pas. | « quelle est la difference entre RTT et JRTT? les 2 sont les memes nan » ; proposition de l'IA, **validée** : « On fusionne en un seul compteur Rtt » |

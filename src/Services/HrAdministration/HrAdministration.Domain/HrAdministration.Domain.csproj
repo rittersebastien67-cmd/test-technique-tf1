@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- Only the event store rebuilds a value object from what it stored, without its rules. -->
+    <!-- Only the persistence rebuilds a value object from what it stored, without its rules. -->
     <InternalsVisibleTo Include="HrAdministration.Infrastructure" />
   </ItemGroup>
 

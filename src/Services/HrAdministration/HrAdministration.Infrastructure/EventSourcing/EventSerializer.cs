@@ -67,5 +67,10 @@ public static class EventSerializer
     public static string SerializeMetadata(EventMetadata metadata) =>
         JsonSerializer.Serialize(new StoredMetadata(metadata.Actor, metadata.Origin, metadata.CorrelationId, SchemaVersion), Options);
 
+    /// <summary>The read models store durations, flags and warnings in the format of the events.</summary>
+    internal static string SerializeValue<T>(T value) => JsonSerializer.Serialize(value, Options);
+
+    internal static T DeserializeValue<T>(string json) => JsonSerializer.Deserialize<T>(json, Options)!;
+
     private sealed record StoredMetadata(Actor Actor, Origin Origin, Guid CorrelationId, int SchemaVersion);
 }

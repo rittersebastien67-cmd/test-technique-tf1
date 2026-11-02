@@ -9,6 +9,10 @@ public static class LeaveErrors
         "period.invalid",
         "La borne de début doit être antérieure ou égale à la borne de fin.");
 
+    public static readonly Error DurationZero = new(
+        "duration.zero",
+        "La période ne contient aucun jour à décompter.");
+
     public static readonly Error CommentTooLong = new(
         "comment.too_long",
         $"Le commentaire ne peut pas dépasser {Comment.MaxLength} caractères.");

@@ -15,6 +15,8 @@ public sealed class HrCalendarLeaveCalendar : ILeaveCalendar
         _qualifier = qualifier;
     }
 
+    public bool Covers(DateOnly date) => _qualifier.Covers(date);
+
     public LeaveDayKind Qualify(DateOnly date) => _qualifier.Qualify(date) switch
     {
         CalendarDayKind.WorkingDay => LeaveDayKind.WorkingDay,

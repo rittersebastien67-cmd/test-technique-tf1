@@ -16,6 +16,8 @@ internal static class Easter
         [2030] = new(2030, 4, 21),
     };
 
+    public static bool IsKnown(int year) => Sundays.ContainsKey(year);
+
     public static DateOnly Sunday(int year) =>
         Sundays.TryGetValue(year, out var sunday)
             ? sunday

@@ -18,6 +18,38 @@ public sealed class CountingPolicyTests
     private static readonly DateOnly Sunday = new(2026, 11, 22);
     private static readonly DateOnly NextMonday = new(2026, 11, 23);
 
+    // Dates the calendar does not know: a request can name any date.
+
+    [Fact]
+    public void A_period_starting_outside_the_calendar_is_refused()
+    {
+        var period = LeavePeriod.Create(new PeriodBound(Monday, HalfDay.Morning), new PeriodBound(Friday, HalfDay.Afternoon)).Value;
+
+        var result = CountingPolicy.Count(period, new LeaveTypeRtt(), FakeLeaveCalendar.FullTimeUntil(Sunday.AddDays(-7)));
+
+        Assert.Equal("period.outside_calendar", result.Error?.Code);
+    }
+
+    [Fact]
+    public void A_period_ending_outside_the_calendar_is_refused()
+    {
+        var period = LeavePeriod.Create(new PeriodBound(Monday, HalfDay.Morning), new PeriodBound(Friday, HalfDay.Afternoon)).Value;
+
+        var result = CountingPolicy.Count(period, new LeaveTypeRtt(), FakeLeaveCalendar.FullTimeUntil(Thursday));
+
+        Assert.Equal("period.outside_calendar", result.Error?.Code);
+    }
+
+    [Fact]
+    public void A_period_ending_on_the_last_covered_day_is_counted()
+    {
+        var period = LeavePeriod.Create(new PeriodBound(Monday, HalfDay.Morning), new PeriodBound(Friday, HalfDay.Afternoon)).Value;
+
+        var result = CountingPolicy.Count(period, new LeaveTypePaidLeave(), FakeLeaveCalendar.FullTimeUntil(Friday));
+
+        Assert.Equal(5m, result.Value.Total);
+    }
+
     // PRD table 4.1, line by line.
 
     [Fact]

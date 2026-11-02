@@ -416,6 +416,7 @@ sequenceDiagram
 | `balance.insufficient` | R3 |
 | `period.overlap` | R4 |
 | `backdating.forbidden` | R5 |
+| `comment.too_long` | R6 |
 | `comment.forbidden_for_sick_leave` | R6 |
 | `cancellation.leave_started` | R7 |
 | `jrtt.outside_year` | R9 |

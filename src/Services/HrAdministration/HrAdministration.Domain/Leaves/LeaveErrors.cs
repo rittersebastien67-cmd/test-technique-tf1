@@ -1,3 +1,4 @@
+using System.Globalization;
 using SharedKernel;
 
 namespace HrAdministration.Domain.Leaves;
@@ -36,4 +37,10 @@ public static class LeaveErrors
     public static readonly Error InvalidStatus = new(
         "request.invalid_status",
         "Cette opération n'est pas possible dans le statut actuel de la demande.");
+
+    public static Error Overlap(DateOnly start, DateOnly end) => new(
+        "period.overlap",
+        $"Chevauche la demande du {DayAndMonth(start)} au {DayAndMonth(end)}.");
+
+    private static string DayAndMonth(DateOnly date) => date.ToString("dd/MM", CultureInfo.InvariantCulture);
 }

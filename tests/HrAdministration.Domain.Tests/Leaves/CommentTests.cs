@@ -4,7 +4,7 @@ namespace HrAdministration.Domain.Tests.Leaves;
 
 public sealed class CommentTests
 {
-    private static readonly LeaveType[] TypesWithComment = [LeaveType.PaidLeave, LeaveType.Rtt, LeaveType.UnpaidLeave];
+    private static readonly LeaveType[] TypesWithComment = [new LeaveTypePaidLeave(), new LeaveTypeRtt(), new LeaveTypeUnpaidLeave()];
 
     [Fact]
     public void A_comment_is_accepted_on_non_sensitive_types()
@@ -20,7 +20,7 @@ public sealed class CommentTests
     [Fact]
     public void A_comment_of_200_characters_is_accepted()
     {
-        var result = Comment.Create(new string('a', 200), LeaveType.PaidLeave);
+        var result = Comment.Create(new string('a', 200), new LeaveTypePaidLeave());
 
         Assert.Equal(200, result.Value?.Text.Length);
     }
@@ -28,7 +28,7 @@ public sealed class CommentTests
     [Fact]
     public void A_comment_of_201_characters_is_rejected()
     {
-        var result = Comment.Create(new string('a', 201), LeaveType.PaidLeave);
+        var result = Comment.Create(new string('a', 201), new LeaveTypePaidLeave());
 
         Assert.Equal("comment.too_long", result.Error?.Code);
     }
@@ -38,7 +38,7 @@ public sealed class CommentTests
     {
         var text = new string('a', 200);
 
-        var result = Comment.Create($"  {text}  ", LeaveType.PaidLeave);
+        var result = Comment.Create($"  {text}  ", new LeaveTypePaidLeave());
 
         Assert.Equal(text, result.Value?.Text);
     }
@@ -46,7 +46,7 @@ public sealed class CommentTests
     [Fact]
     public void A_comment_is_refused_for_sick_leave()
     {
-        var result = Comment.Create("Grippe", LeaveType.SickLeave);
+        var result = Comment.Create("Grippe", new LeaveTypeSickLeave());
 
         Assert.Equal("comment.forbidden_for_sick_leave", result.Error?.Code);
     }
@@ -54,7 +54,7 @@ public sealed class CommentTests
     [Fact]
     public void A_too_long_comment_for_sick_leave_is_reported_as_forbidden()
     {
-        var result = Comment.Create(new string('a', 201), LeaveType.SickLeave);
+        var result = Comment.Create(new string('a', 201), new LeaveTypeSickLeave());
 
         Assert.Equal("comment.forbidden_for_sick_leave", result.Error?.Code);
     }
@@ -65,7 +65,7 @@ public sealed class CommentTests
     [InlineData("   ")]
     public void A_blank_text_is_no_comment_whatever_the_type(string? text)
     {
-        Assert.All([.. TypesWithComment, LeaveType.SickLeave], type =>
+        Assert.All([.. TypesWithComment, new LeaveTypeSickLeave()], type =>
         {
             var result = Comment.Create(text, type);
 
@@ -77,7 +77,7 @@ public sealed class CommentTests
     [Fact]
     public void To_string_does_not_reveal_the_text()
     {
-        var comment = Comment.Create("Vacances en famille", LeaveType.PaidLeave).Value;
+        var comment = Comment.Create("Vacances en famille", new LeaveTypePaidLeave()).Value;
 
         Assert.DoesNotContain("Vacances", $"{comment}");
     }

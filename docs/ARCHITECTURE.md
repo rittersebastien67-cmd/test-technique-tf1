@@ -215,7 +215,7 @@ sequenceDiagram
 | Horaire, Lieu de travail | `WorkSchedule` (`FullTime5Days`, `PartTime80`), `WorkLocation` (département) |
 | Calendrier férié ; jour ouvré, férié, de week-end, non travaillé | `PublicHolidayCalendar` (`General`, `AlsaceMoselle`) ; `DayKind` (`WorkingDay`, `PublicHoliday`, `Weekend`, `NonWorkingDay`) |
 | Demande de congé, Période, Borne, Demi-journée | `LeaveRequest`, `LeavePeriod`, `PeriodBound`, `HalfDay` (`Morning`, `Afternoon`) |
-| Type de congé : CP, RTT/JRTT, Maladie, Sans solde | `LeaveType` : `PaidLeave`, `Rtt`, `SickLeave`, `UnpaidLeave` |
+| Type de congé : CP, RTT/JRTT, Maladie, Sans solde | `LeaveType` (abstrait) : `LeaveTypePaidLeave`, `LeaveTypeRtt`, `LeaveTypeSickLeave`, `LeaveTypeUnpaidLeave` |
 | Statut : Brouillon, Soumise, Annulée, Remplacée | `LeaveRequestStatus` : `Draft`, `Submitted`, `Cancelled`, `Superseded` |
 | Origine : saisie manuelle, agent | `Origin` : `Manual`, `Agent` |
 | Durée décomptée | `CountedDuration` |
@@ -604,3 +604,4 @@ Les décisions viennent de la session de conception du 01/11/2026. Chaque décis
 | AD55 | **Pas d'agrégat employé** : la fiche RH est un modèle de lecture `EmployeeProfile`, alimenté par le seed | Choix « Pas d'agrégat employé », après le refus d'AD24 |
 | AD56 | **Coupes pour tenir en 2 à 3 jours** (BACKLOG K1 à K4) : sessions de la BFF en mémoire ; ni RabbitMQ ni outbox, purge par `closure` et job à 30 jours ; pas de tests Testcontainers ; Angular sur un seul écran avec simulation sur bouton | « on coupe pas de soucis » |
 | AD57 | **Payroll reste un BC distinct, sans API**, hébergé dans le processus de HrAdministration. Il consomme les événements d'intégration in-process, dans la transaction de soumission. | « on peut passer payroll dans le monolith » ; « pas d'api juste un BC différent » |
+| AD58 | **`LeaveType` est une hiérarchie fermée de value objects** : un `record` abstrait et un `record` scellé par type, sans instance statique. Deux instances d'un même type sont égales. Les règles métier restent dans les politiques (AD28). | « pourquoi LeaveType n'est pas un objet abstrait ou une interface qu'implemente LeaveTypeRtt, LeaveTypePaidLeave ? » ; « je prefere la hierarchie », contre la classe scellée recommandée par l'IA ; « supprime les 4 statics readOnly » |

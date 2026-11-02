@@ -250,7 +250,7 @@ sequenceDiagram
   - **Types** : `PaidLeave` ou `Rtt` (AD63).
   - **Contenu** : `Acquired` et `CurrentYearOnly` (issus d'`EntitlementGranted`) et les mouvements `DaysDeducted` et `DaysCredited`, chacun rattaché à une demande.
   - **Compteur courant** : `Reserved` = `Taken` + `Planned` ; `Available` = `Acquired` − `Reserved`.
-  - **Invariants** : R3 (solde suffisant) et R9 (un compteur `CurrentYearOnly`, celui des JRTT du forfait jours, ne vaut que pour l'année civile en cours). Une seule déduction par demande, ce qui rend l'opération idempotente.
+  - **Invariants** : R3 (solde suffisant, et période sur une seule année civile, celle du compteur, AD64) et R9 (un compteur `CurrentYearOnly`, celui des JRTT du forfait jours, ne vaut que pour l'année civile en cours). Une seule déduction par demande, ce qui rend l'opération idempotente.
 - Les **droits acquis** sont seedés directement avec les valeurs de R8, sans contrat ni service de calcul (AD38, AD53).
 
 #### Module `Leaves` (event sourcing)
@@ -417,6 +417,8 @@ sequenceDiagram
 | `period.invalid` | R1 |
 | `duration.zero` | R2 |
 | `balance.insufficient` | R3 |
+| `period.spans_two_years` | R3 : CP ou RTT à cheval sur deux années civiles |
+| `period.outside_counter_year` | R3 : période d'une autre année que celle du compteur |
 | `period.overlap` | R4 |
 | `backdating.forbidden` | R5 |
 | `comment.too_long` | R6 |
@@ -488,7 +490,7 @@ Tous les tests unitaires s'exécutent **sans clé d'API ni réseau**. Les tests 
 | Niveau | Contenu |
 |---|---|
 | **Architecture** (ArchUnitNET ou NetArchTest) | Domain ne dépend que du SharedKernel : ni EF Core, ni ASP.NET, ni Microsoft.Extensions.AI. Application ne dépend pas d'Infrastructure. `HrCalendar` ne référence ni `Leaves` ni `Balances`. Aucun module du Domain de HrAdministration ne référence un autre module. Assistant ne référence que `HrAdministration.Contracts`. Payroll ne référence que `HrAdministration.Contracts` et n'expose aucune route. Le SharedKernel reste minimal. Les événements de domaine ne dépendent pas de la sérialisation. Aucun contrôleur n'expose de `DELETE` sur les demandes. |
-| **Domaine HrAdministration** (xUnit, sans base) | Une suite par règle, de R1 à R11. Le tableau 4.1 du PRD (temps partiel) est rejoué. Les agrégats event-sourcés sont testés en *given / when / then* : événements passés → commande → événements produits ou erreur. Cas limites : R5 (plus de 48 h), R9 (deux années), R10 (scission). `HrCalendar` : jours fériés 2026 et 2027, Vendredi saint, 26 décembre, départements 57, 67 et 68, temps partiel. `LeaveBalance` : jours pris et planifiés selon la date du jour, recrédit, idempotence. Annulation d'un brouillon et d'une demande soumise. Conformité du seed à R8. |
+| **Domaine HrAdministration** (xUnit, sans base) | Une suite par règle, de R1 à R11. Le tableau 4.1 du PRD (temps partiel) est rejoué. Les agrégats event-sourcés sont testés en *given / when / then* : événements passés → commande → événements produits ou erreur. Cas limites : R3 (CP ou RTT à cheval sur deux années), R5 (plus de 48 h), R9 (deux années), R10 (scission). `HrCalendar` : jours fériés 2026 et 2027, Vendredi saint, 26 décembre, départements 57, 67 et 68, temps partiel. `LeaveBalance` : jours pris et planifiés selon la date du jour, recrédit, idempotence. Annulation d'un brouillon et d'une demande soumise. Conformité du seed à R8. |
 | **Event store** (store en mémoire, sans Docker) | Conflit de version (409). Deux soumissions simultanées d'un même employé : une seule aboutit, l'autre reçoit un 409. Égalité entre projections reconstruites et projections inline. Seed idempotent. Les tests Testcontainers PostgreSQL sont une piste V2 (AD56, coupe K3). |
 | **API HrAdministration** (`WebApplicationFactory`) | Les 11 routes. Format ProblemDetails. Warnings renvoyés en 200 ou 201. 404 sur la ressource d'un autre employé. Liste blanche de la portée `agent` : `POST` et `PUT` d'un brouillon d'origine `Agent` autorisés, toute autre route en 403. La soumission déduit le solde une seule fois, même si elle est rejouée. `hr-record` ne renvoie que l'identité. |
 | **Assistant** | `IChatClient` simulé et scripté, `IHrAdministrationClient` simulé. Workflow des 4 tools : `POST` au premier tour, puis `PUT`. Aucun identifiant ni aucune identité envoyés au LLM. Le client ne propose que `POST` et `PUT`. 11ᵉ tour refusé. Messages fixes A1 et A9. Purge par `closure` et à 30 jours. Aucun contenu dans les journaux (vérifié avec un logger de test). |
@@ -613,3 +615,4 @@ Les décisions viennent de la session de conception du 01/11/2026. Chaque décis
 | AD61 | **`Leaves` peut utiliser `DayKind` de `HrCalendar`, et rien d'autre de ce module** : seule exception à AD59. Un même BC partage un même langage : `LeaveDayKind` en était une copie à l'identique et a été supprimé. Le port `ILeaveCalendar` reste, et un test d'architecture limite l'exception à `DayKind`. *Annulée par AD62* | Proposition de l'IA, **validée** (« oui »), contre un `LeaveDayKind` réduit à trois valeurs qui aurait gardé AD59 intacte |
 | AD62 | **`DayKind` est dupliqué dans `HrCalendar` et dans `Leaves`.** Les deux modules restent totalement isolés (AD59, sans exception). La couche Application traduit l'un en l'autre dans `HrCalendarLeaveCalendar`. | « duplique DayKind dans Leaves et HrCalendar », contre le partage recommandé par l'IA (AD61) |
 | AD63 | **Un seul compteur `Rtt`, sans type `Jrtt`.** Dans l'application, RTT et JRTT ne diffèrent que par R9. `EntitlementGranted` porte donc `CurrentYearOnly`, et `LeaveBalance` applique R9 à partir de cette donnée, sans lire de profil sur la fiche RH (D52). Le JRTT reste un terme du PRD, et le code d'erreur `jrtt.outside_year` ne change pas. | « quelle est la difference entre RTT et JRTT? les 2 sont les memes nan » ; proposition de l'IA, **validée** : « On fusionne en un seul compteur Rtt » |
+| AD64 | **Une demande de CP ou de RTT reste sur une seule année civile (D59).** Le compteur à déduire est donc celui de l'année de la période. `LeaveBalance` renvoie `period.spans_two_years` si la période est à cheval, et `period.outside_counter_year` si elle relève d'une autre année que celle du compteur. | « ne pas autorisé les CP ni RTT qui sont à cheval sur 2 années » ; « retourne une erreur utilisateur pas un throw » |

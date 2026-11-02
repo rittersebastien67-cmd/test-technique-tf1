@@ -154,8 +154,10 @@ Aucune saga n'est nécessaire.
 | `leave_requests_view` | `GET leave-requests`, `GET calendar/leaves`, `GET calendar/sick-leaves` |
 | `balances_view` | `GET balances` |
 
-- La répartition entre jours *pris* et *planifiés* est calculée à la lecture avec `IClock`.
-- Les projections sont reconstructibles en rejouant les événements.
+- `EfEventStore` applique les projections (`IInlineProjection`) avant son unique `SaveChanges` : un conflit de version ne laisse aucune trace dans les vues.
+- Chaque ligne d'une vue dépend d'un seul flux. `balances_view` a pour clé le `stream_id`, car seul `EntitlementGranted` indique de quel compteur il s'agit.
+- La répartition entre jours *pris* et *planifiés* est calculée à la lecture avec la date du jour. `balances_view` garde donc, dans sa colonne `reservations` (JSONB), le premier jour et les jours retenus par chaque demande.
+- Les projections sont reconstructibles en rejouant les événements (`ProjectionRebuilder`), avec le même code que les projections inline et en une seule transaction. Le rejeu se lance au démarrage de l'hôte, sur demande, avec `Database__RebuildProjectionsOnStartup` : un ajout pendant le rejeu serait perdu, donc l'hôte ne doit pas encore recevoir de requêtes.
 - Il n'y a **pas de snapshot** : un flux contient peu d'événements en V1.
 
 **Données sensibles**
@@ -234,6 +236,7 @@ sequenceDiagram
 - **Il n'y a pas d'agrégat employé** (AD55). La fiche n'est jamais modifiée en V1 et ne porte aucun invariant. C'est donc un **modèle de lecture** `EmployeeProfile`, alimenté uniquement par le seed (table `employee_profiles`). Il contient :
   - l'**identité, exposée par l'API** : `FirstName`, `LastName`, `JobTitle`, `DirectManager` (prénom, nom) ;
   - des **données internes, jamais exposées**, que lisent les politiques : `WorkSchedule` (R2) et `WorkLocation` (R11).
+- `EmployeeProfile` et son port `IEmployeeProfileReader` sont dans la couche Application : ce modèle de lecture utilise des types de `HrCalendar`, ce qu'aucun autre module du Domain n'a le droit de faire (AD59).
 - **Pas de contrat de travail** (AD53, PRD D52) : ni modalité contractuelle, ni date d'entrée.
 - L'identité n'est jamais journalisée (C3) ni transmise au LLM (C4).
 
@@ -272,7 +275,7 @@ sequenceDiagram
 - **Écrasement** (R10, AD68), dans la transaction de soumission de l'arrêt : `Supersede()` sur la demande chevauchée, `Credit` de tous ses jours, puis pour chaque partie restante `CarryOver()` et `DeductCarriedOver`. Sans solde : pas de compteur, donc ni crédit ni déduction.
 - **Aucune suppression** (AD42) : un brouillon est annulé ; une demande soumise est annulée selon R7.
 
-**Ports** : `IEventStore`, `IEmployeeProfileReader`, `IClock`, `ICurrentEmployee`, `ILeaveCalendar` (donne à `Leaves` la nature de chaque jour, avec son propre `DayKind`, implémenté dans l'Application à partir de `HrCalendar`).
+**Ports** : `IEventStore`, `IEmployeeProfileReader`, `ILeaveRequestViewReader`, `IBalanceViewReader`, `IClock`, `ICurrentEmployee`, `ILeaveCalendar` (donne à `Leaves` la nature de chaque jour, avec son propre `DayKind`, implémenté dans l'Application à partir de `HrCalendar`).
 
 ### 3.2 HrAdministration : API
 

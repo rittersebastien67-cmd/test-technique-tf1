@@ -15,6 +15,8 @@ internal static class SampleEvents
 
     public static readonly PeriodBound Friday = new(new DateOnly(2026, 11, 13), HalfDay.Afternoon);
 
+    public static readonly ILeaveCalendar Calendar = new WeekdaysCalendar();
+
     public static DraftContent PaidLeave => new(new LeaveTypePaidLeave(), Monday, Friday, "Vacances d'été", ["YEAR_INFERRED"]);
 
     public static LeaveRequest Draft(DraftContent content) =>

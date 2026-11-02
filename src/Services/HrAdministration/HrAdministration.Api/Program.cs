@@ -15,6 +15,12 @@ if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
     await app.Services.MigrateHrAdministrationDatabaseAsync();
 }
 
+// On request only, before the host accepts requests: an append during the replay would be missed.
+if (app.Configuration.GetValue<bool>("Database:RebuildProjectionsOnStartup"))
+{
+    await app.Services.RebuildHrAdministrationProjectionsAsync();
+}
+
 app.MapDefaultEndpoints();
 
 await app.RunAsync();

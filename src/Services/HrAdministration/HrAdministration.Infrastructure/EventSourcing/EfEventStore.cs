@@ -1,21 +1,31 @@
 using HrAdministration.Application.EventSourcing;
+using HrAdministration.Infrastructure.Projections;
 using Microsoft.EntityFrameworkCore;
 using SharedKernel;
 
 namespace HrAdministration.Infrastructure.EventSourcing;
 
-/// <summary>Event store on EF Core (AD49). A single <c>SaveChanges</c> makes one transaction of an append, whatever the number of streams.</summary>
+/// <summary>
+/// Event store on EF Core (AD49). A single <c>SaveChanges</c> makes one transaction of an append, whatever the number of streams,
+/// with the changes of the inline projections.
+/// </summary>
 public sealed class EfEventStore : IEventStore
 {
     private readonly HrAdministrationDbContext _context;
     private readonly TimeProvider _timeProvider;
     private readonly IUniqueViolationDetector _uniqueViolations;
+    private readonly IEnumerable<IInlineProjection> _projections;
 
-    public EfEventStore(HrAdministrationDbContext context, TimeProvider timeProvider, IUniqueViolationDetector uniqueViolations)
+    public EfEventStore(
+        HrAdministrationDbContext context,
+        TimeProvider timeProvider,
+        IUniqueViolationDetector uniqueViolations,
+        IEnumerable<IInlineProjection> projections)
     {
         _context = context;
         _timeProvider = timeProvider;
         _uniqueViolations = uniqueViolations;
+        _projections = projections;
     }
 
     public async Task<IReadOnlyList<IDomainEvent>> ReadStreamAsync(string streamId, CancellationToken cancellationToken = default)
@@ -45,6 +55,17 @@ public sealed class EfEventStore : IEventStore
                 Metadata = serializedMetadata,
                 RecordedAt = recordedAt,
             })));
+
+            foreach (var append in appends)
+            {
+                foreach (var domainEvent in append.Events)
+                {
+                    foreach (var projection in _projections)
+                    {
+                        await projection.ApplyAsync(_context, append.StreamId, domainEvent, cancellationToken);
+                    }
+                }
+            }
 
             await _context.SaveChangesAsync(cancellationToken);
             return Result.Success();

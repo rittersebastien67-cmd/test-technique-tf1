@@ -1,5 +1,10 @@
+using HrAdministration.Application.Balances;
+using HrAdministration.Application.Employees;
 using HrAdministration.Application.EventSourcing;
+using HrAdministration.Application.Leaves;
+using HrAdministration.Infrastructure.Employees;
 using HrAdministration.Infrastructure.EventSourcing;
+using HrAdministration.Infrastructure.Projections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -43,6 +48,17 @@ public sealed class MigrationTests
     }
 
     [Fact]
+    public void The_read_models_have_their_own_tables()
+    {
+        var script = MigrationScript();
+
+        Assert.Contains("CONSTRAINT pk_leave_requests_view PRIMARY KEY (leave_request_id)", script, StringComparison.Ordinal);
+        Assert.Contains("CONSTRAINT pk_balances_view PRIMARY KEY (stream_id)", script, StringComparison.Ordinal);
+        Assert.Contains("CONSTRAINT pk_employee_profiles PRIMARY KEY (employee_id)", script, StringComparison.Ordinal);
+        Assert.Contains("reservations jsonb NOT NULL", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_postgres_unique_violation_is_a_conflict()
     {
         var exception = new DbUpdateException("Failed.", new PostgresException("Duplicate.", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation));
@@ -66,6 +82,21 @@ public sealed class MigrationTests
         await using var scope = services.CreateAsyncScope();
 
         Assert.IsType<EfEventStore>(scope.ServiceProvider.GetRequiredService<IEventStore>());
+    }
+
+    [Fact]
+    public async Task The_read_models_are_wired_without_connecting()
+    {
+        await using var services = new ServiceCollection().AddHrAdministrationInfrastructure("Host=localhost").BuildServiceProvider();
+        await using var scope = services.CreateAsyncScope();
+
+        Assert.Equal(
+            [typeof(LeaveRequestsProjection), typeof(BalancesProjection)],
+            scope.ServiceProvider.GetServices<IInlineProjection>().Select(projection => projection.GetType()));
+        Assert.IsType<EfLeaveRequestViewReader>(scope.ServiceProvider.GetRequiredService<ILeaveRequestViewReader>());
+        Assert.IsType<EfBalanceViewReader>(scope.ServiceProvider.GetRequiredService<IBalanceViewReader>());
+        Assert.IsType<EfEmployeeProfileReader>(scope.ServiceProvider.GetRequiredService<IEmployeeProfileReader>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<ProjectionRebuilder>());
     }
 
     [Fact]

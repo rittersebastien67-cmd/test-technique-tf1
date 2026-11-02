@@ -57,5 +57,8 @@ public sealed class PublicHolidayCalendar
 
     public bool IsPublicHoliday(DateOnly date) => HolidaysIn(date.Year).Contains(date);
 
+    /// <summary>Whether the public holidays of this date are known. Asking for those of another date is a bug in the caller.</summary>
+    public bool Covers(DateOnly date) => Easter.IsKnown(date.Year);
+
     public override string ToString() => Name;
 }

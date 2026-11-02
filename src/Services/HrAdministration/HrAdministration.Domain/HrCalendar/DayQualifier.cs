@@ -17,6 +17,8 @@ public sealed class DayQualifier
         _schedule = schedule;
     }
 
+    public bool Covers(DateOnly date) => _calendar.Covers(date);
+
     public DayKind Qualify(DateOnly date)
     {
         if (_calendar.IsPublicHoliday(date))

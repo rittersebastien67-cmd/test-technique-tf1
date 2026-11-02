@@ -255,10 +255,11 @@ sequenceDiagram
 
 #### Module `Leaves` (event sourcing)
 - Agrégat `LeaveRequest`, reconstitué à partir du flux `leave-request-{id}`. Il contient :
-  - `LeavePeriod` et `LeaveType` (`IsSensitive` pour `SickLeave`) ;
+  - les bornes `Start` et `End`, et non un `LeavePeriod`, car un brouillon peut être enregistré avec une période invalide (A3), et `LeaveType` (`IsSensitive` pour `SickLeave`) ;
   - `Comment`, refusé pour `SickLeave` (R6) ;
-  - `Status`, `Origin` et `CountedDuration` (avec le détail jour par jour) ;
+  - `Status`, `Origin` et `CountedDuration` (avec le détail jour par jour), absent tant que la période est invalide ou sans jour à décompter ;
   - `Flags[]` et `Warnings[]`.
+- **Brouillon et soumission** : un brouillon n'existe qu'avec son type et ses deux bornes (AD66). Sur un brouillon, R1, R2 et R5 produisent un `Flag.Inconsistency` (A3). À la soumission, les mêmes règles sont recontrôlées à la date du jour et renvoient une erreur. Seul le commentaire (R6) refuse aussi le brouillon. R3, R4, R9 et R10 dépendent d'autres agrégats et sont contrôlées par la couche Application.
 - **Une politique par règle** (AD28). Ainsi, une décision du PRD (par exemple D39, D40 ou D45) peut évoluer sans toucher au reste :
 
 | Politique | Règles |
@@ -415,6 +416,7 @@ sequenceDiagram
 | Code | Règle |
 |---|---|
 | `period.invalid` | R1 |
+| `period.outside_calendar` | R2 : période hors des années connues du calendrier férié, de 2025 à 2030 (AD67) |
 | `duration.zero` | R2 |
 | `balance.insufficient` | R3 |
 | `period.spans_two_years` | R3 : CP ou RTT à cheval sur deux années civiles |
@@ -616,3 +618,6 @@ Les décisions viennent de la session de conception du 01/11/2026. Chaque décis
 | AD62 | **`DayKind` est dupliqué dans `HrCalendar` et dans `Leaves`.** Les deux modules restent totalement isolés (AD59, sans exception). La couche Application traduit l'un en l'autre dans `HrCalendarLeaveCalendar`. | « duplique DayKind dans Leaves et HrCalendar », contre le partage recommandé par l'IA (AD61) |
 | AD63 | **Un seul compteur `Rtt`, sans type `Jrtt`.** Dans l'application, RTT et JRTT ne diffèrent que par R9. `EntitlementGranted` porte donc `CurrentYearOnly`, et `LeaveBalance` applique R9 à partir de cette donnée, sans lire de profil sur la fiche RH (D52). Le JRTT reste un terme du PRD, et le code d'erreur `jrtt.outside_year` ne change pas. | « quelle est la difference entre RTT et JRTT? les 2 sont les memes nan » ; proposition de l'IA, **validée** : « On fusionne en un seul compteur Rtt » |
 | AD64 | **Une demande de CP ou de RTT reste sur une seule année civile (D59).** Le compteur à déduire est donc celui de l'année de la période. `LeaveBalance` renvoie `period.spans_two_years` si la période est à cheval, et `period.outside_counter_year` si elle relève d'une autre année que celle du compteur. | « ne pas autorisé les CP ni RTT qui sont à cheval sur 2 années » ; « retourne une erreur utilisateur pas un throw » |
+| AD65 | **Les 48 h de R5 sont comptées en jours civils** : une déclaration est tardive à partir du 3ᵉ jour après le premier jour de l'arrêt. Une période n'a pas d'heure de début, seulement une demi-journée, et le domaine reçoit la date du jour comme `LeaveBalance`. | Proposition de l'IA, **validée** : « Je les compte en jours civils "oui" » |
+| AD66 | **Un brouillon n'est enregistré qu'une fois le type et les deux bornes renseignés (PRD D60).** Ces champs sont donc obligatoires dans `LeaveRequest`. Avant cela, la saisie reste dans le formulaire, et l'agent pose une question (A4). Une route qui les reçoit incomplets répond 400 (requête mal formée). Un brouillon complet mais invalide reste enregistré avec ses signalements (A3). | « le brouillon est persisté lorsque toutes les informations nécessaires sont renseignées » ; la réponse 400 est une proposition de l'IA, **validée** (« Oui ca me convient ») |
+| AD67 | **Une période hors des années connues du calendrier férié (2025 à 2030) renvoie `period.outside_calendar`**, et non une exception, car une demande peut porter sur n'importe quelle date. `ILeaveCalendar.Covers` indique les dates couvertes et `CountingPolicy` applique la règle : `Flag.Inconsistency` sur un brouillon, refus à la soumission. Une période qui finit le 31/12/2030 reste décomptée. | « il faudrait un nouveau code d'erreur » ; le code et `Covers` sont une proposition de l'IA, **validée** (« Oui ca me convient ») |

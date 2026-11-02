@@ -20,8 +20,20 @@ public static class CountingPolicy
 
         for (var date = period.Start.Date; ; date = date.AddDays(1))
         {
-            var kind = calendar.Qualify(date);
             var isAfterPeriod = date > period.End.Date;
+
+            if (!calendar.Covers(date))
+            {
+                // A period ending on the last covered day is still counted: only the search for the return to work stops here.
+                if (isAfterPeriod)
+                {
+                    break;
+                }
+
+                return LeaveErrors.PeriodOutsideCalendar;
+            }
+
+            var kind = calendar.Qualify(date);
 
             // Only paid leave goes past the period, and at most up to the return to work: the first worked day after it.
             if (isAfterPeriod && (kind == DayKind.WorkingDay || !countsNonWorkingDays))

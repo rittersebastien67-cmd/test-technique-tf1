@@ -143,6 +143,48 @@ public sealed class LeaveRequest : AggregateRoot<Guid>
         return Result.Success();
     }
 
+    /// <summary>
+    /// A sick leave wins over the request, even a started one (R10), once <see cref="SickLeaveOverridePolicy"/> has decided. Unlike a cancellation,
+    /// it is not a gesture of the employee, so R7 does not apply. Crediting the balance is up to the Application layer.
+    /// </summary>
+    public Result Supersede()
+    {
+        if (Status != LeaveRequestStatus.Submitted)
+        {
+            return LeaveErrors.InvalidStatus;
+        }
+
+        Raise(new LeaveRequestSuperseded(Id));
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Posts what a sick leave left of this superseded request as a new submitted request. R5 is not checked: a part of a started leave
+    /// starts in the past. The new request is a request like any other, so R4, R7 and R10 apply to it on its own period.
+    /// </summary>
+    public Result<LeaveRequest> CarryOver(Guid leaveRequestId, LeavePart part)
+    {
+        if (Status != LeaveRequestStatus.Superseded)
+        {
+            return LeaveErrors.InvalidStatus;
+        }
+
+        var request = new LeaveRequest();
+        request.Raise(new LeaveRequestCarriedOver(
+            leaveRequestId,
+            Id,
+            EmployeeId,
+            Origin,
+            Type,
+            part.Period.Start,
+            part.Period.End,
+            Comment,
+            part.Duration,
+            Flags,
+            Warnings));
+        return request;
+    }
+
     protected override void Apply(IDomainEvent domainEvent)
     {
         switch (domainEvent)
@@ -179,6 +221,24 @@ public sealed class LeaveRequest : AggregateRoot<Guid>
 
             case LeaveRequestCancelled:
                 Status = LeaveRequestStatus.Cancelled;
+                break;
+
+            case LeaveRequestSuperseded:
+                Status = LeaveRequestStatus.Superseded;
+                break;
+
+            case LeaveRequestCarriedOver carriedOver:
+                Id = carriedOver.LeaveRequestId;
+                EmployeeId = carriedOver.EmployeeId;
+                Origin = carriedOver.Origin;
+                Status = LeaveRequestStatus.Submitted;
+                Type = carriedOver.Type;
+                Start = carriedOver.Start;
+                End = carriedOver.End;
+                Comment = carriedOver.Comment;
+                Duration = carriedOver.Duration;
+                Flags = carriedOver.Flags;
+                Warnings = carriedOver.Warnings;
                 break;
         }
     }

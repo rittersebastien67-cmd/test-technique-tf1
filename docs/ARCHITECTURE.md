@@ -134,7 +134,7 @@ Les **métadonnées** de chaque événement contiennent :
 
 | Flux | Événements | Rôle |
 |---|---|---|
-| `leave-request-{id}` | `LeaveRequestDrafted`, `LeaveRequestUpdated`, `LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestShortened`, `LeaveRequestSplit`, `LeaveRequestSuperseded` | Cycle de vie d'une demande |
+| `leave-request-{id}` | `LeaveRequestDrafted`, `LeaveRequestUpdated`, `LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestSuperseded`, `LeaveRequestCarriedOver` | Cycle de vie d'une demande. `LeaveRequestCarriedOver` ouvre le flux d'une nouvelle demande, pour ce qu'un arrêt maladie laisse d'une demande remplacée (AD68) |
 | `balance-{employee}-{type}-{year}` | `EntitlementGranted`, `DaysDeducted`, `DaysCredited` | Registre dont on déduit le compteur courant (AD30) |
 | `agenda-{employee}` | `LeaveRequestSubmissionRecorded` (identifiant de la demande seulement) | Garde de concurrence de R4 et R10 : sérialise les soumissions d'un même employé (AD60) |
 
@@ -159,7 +159,7 @@ Aucune saga n'est nécessaire.
 - Il n'y a **pas de snapshot** : un flux contient peu d'événements en V1.
 
 **Données sensibles**
-- Le commentaire n'apparaît que dans `LeaveRequestDrafted` et `LeaveRequestUpdated`, et jamais pour une Maladie (R6).
+- Le commentaire n'apparaît que dans `LeaveRequestDrafted`, `LeaveRequestUpdated` et `LeaveRequestCarriedOver`, et jamais pour une Maladie (R6).
 - Les événements ne sont jamais journalisés (C3).
 - En V2, l'effacement RGPD passera par du *crypto-shredding*.
 
@@ -196,7 +196,7 @@ sequenceDiagram
     HR->>DB: rejoue leave-request-{id}, balance-… et lit la version d'agenda-{employee}
     HR->>HR: politiques R1–R6, R9–R11 (décompte, chevauchement, solde, écrasement)
     HR->>PAY: événements d'intégration (in-process)
-    HR->>DB: 1 transaction : LeaveRequestSubmitted, LeaveRequestSubmissionRecorded, DaysDeducted, [Shortened/Split/Superseded + DaysCredited], payroll_variable_items
+    HR->>DB: 1 transaction : LeaveRequestSubmitted, LeaveRequestSubmissionRecorded, DaysDeducted, [Superseded + DaysCredited, CarriedOver + DaysDeducted], payroll_variable_items
     alt version d'un flux déjà prise
         DB-->>HR: violation unique (stream_id, version)
         HR-->>BFF: 409
@@ -250,7 +250,7 @@ sequenceDiagram
   - **Types** : `PaidLeave` ou `Rtt` (AD63).
   - **Contenu** : `Acquired` et `CurrentYearOnly` (issus d'`EntitlementGranted`) et les mouvements `DaysDeducted` et `DaysCredited`, chacun rattaché à une demande.
   - **Compteur courant** : `Reserved` = `Taken` + `Planned` ; `Available` = `Acquired` − `Reserved`.
-  - **Invariants** : R3 (solde suffisant, et période sur une seule année civile, celle du compteur, AD64) et R9 (un compteur `CurrentYearOnly`, celui des JRTT du forfait jours, ne vaut que pour l'année civile en cours). Une seule déduction par demande, ce qui rend l'opération idempotente.
+  - **Invariants** : R3 (solde suffisant, et période sur une seule année civile, celle du compteur, AD64) et R9 (un compteur `CurrentYearOnly`, celui des JRTT du forfait jours, ne vaut que pour l'année civile en cours). Une seule déduction par demande, ce qui rend l'opération idempotente. Une partie reposée après un écrasement (R10) est déduite sans recontrôle de R3 et R9 (AD68).
 - Les **droits acquis** sont seedés directement avec les valeurs de R8, sans contrat ni service de calcul (AD38, AD53).
 
 #### Module `Leaves` (event sourcing)
@@ -266,9 +266,10 @@ sequenceDiagram
 |---|---|
 | `CountingPolicy` | R2 : jours ouvrés, décompte légal des CP à temps partiel (PRD 4.1), jours travaillés pour la Maladie et le Sans solde (D39), demi-journée avant un jour non travaillé, qui ne s'étend pas à ce jour (D40) |
 | `OverlapPolicy` | R4 |
-| `SickLeaveOverridePolicy` | R10 : la demande est raccourcie, scindée ou remplacée, et les jours sont recrédités |
+| `SickLeaveOverridePolicy` | R10 : pour chaque demande chevauchée, les demi-journées retirées, les parties restantes et les jours recrédités au final. Rien n'est modifié : le résultat sert aussi d'aperçu avant soumission (A7) |
 | `BackdatingPolicy` | R5 : antériorité permise pour la Maladie, avertissement au-delà de 48 h |
 
+- **Écrasement** (R10, AD68), dans la transaction de soumission de l'arrêt : `Supersede()` sur la demande chevauchée, `Credit` de tous ses jours, puis pour chaque partie restante `CarryOver()` et `DeductCarriedOver`. Sans solde : pas de compteur, donc ni crédit ni déduction.
 - **Aucune suppression** (AD42) : un brouillon est annulé ; une demande soumise est annulée selon R7.
 
 **Ports** : `IEventStore`, `IEmployeeProfileReader`, `IClock`, `ICurrentEmployee`, `ILeaveCalendar` (donne à `Leaves` la nature de chaque jour, avec son propre `DayKind`, implémenté dans l'Application à partir de `HrCalendar`).
@@ -293,7 +294,7 @@ Préfixe : `/api/v1/me/...`. L'employé courant est déduit du jeton et n'appara
 
 **Aucune route `DELETE`** (AD42, C17).
 
-**Événements d'intégration** : `LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestShortened`, `LeaveRequestSplit`, `LeaveRequestSuperseded`.
+**Événements d'intégration** : `LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestSuperseded`, `LeaveRequestCarriedOver`.
 - Contenu : l'employé (GUID opaque), le type, la période et la durée.
 - Jamais de commentaire ni d'identité.
 
@@ -308,7 +309,7 @@ Préfixe : `/api/v1/me/...`. L'employé courant est déduit du jeton et n'appara
 
 ### 3.4 Payroll (BC squelette, sans API)
 - **BC distinct** (projets `Payroll.Domain`, `Payroll.Application` et `Payroll.Infrastructure`), mais **sans API ni hôte propre**. Il est chargé par l'hôte HrAdministration (AD57).
-- Il consomme **in-process** les événements d'intégration de `HrAdministration.Contracts` (`LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestShortened`, `LeaveRequestSplit`, `LeaveRequestSuperseded`). Ces événements sont distribués dans la transaction de soumission. Seuls `UnpaidLeave` et `SickLeave` sont retenus.
+- Il consomme **in-process** les événements d'intégration de `HrAdministration.Contracts` (`LeaveRequestSubmitted`, `LeaveRequestCancelled`, `LeaveRequestSuperseded`, `LeaveRequestCarriedOver`). Ces événements sont distribués dans la transaction de soumission. Seuls `UnpaidLeave` et `SickLeave` sont retenus.
 - Il contient l'agrégat `PayrollVariableItem`, persisté dans le schéma `payroll` avec un `DbContext` propre. La clé unique par événement garantit l'idempotence.
 - Il ne référence que `HrAdministration.Contracts`, jamais le Domain ni l'Application de HrAdministration.
 
@@ -492,7 +493,7 @@ Tous les tests unitaires s'exécutent **sans clé d'API ni réseau**. Les tests 
 | Niveau | Contenu |
 |---|---|
 | **Architecture** (ArchUnitNET ou NetArchTest) | Domain ne dépend que du SharedKernel : ni EF Core, ni ASP.NET, ni Microsoft.Extensions.AI. Application ne dépend pas d'Infrastructure. `HrCalendar` ne référence ni `Leaves` ni `Balances`. Aucun module du Domain de HrAdministration ne référence un autre module. Assistant ne référence que `HrAdministration.Contracts`. Payroll ne référence que `HrAdministration.Contracts` et n'expose aucune route. Le SharedKernel reste minimal. Les événements de domaine ne dépendent pas de la sérialisation. Aucun contrôleur n'expose de `DELETE` sur les demandes. |
-| **Domaine HrAdministration** (xUnit, sans base) | Une suite par règle, de R1 à R11. Le tableau 4.1 du PRD (temps partiel) est rejoué. Les agrégats event-sourcés sont testés en *given / when / then* : événements passés → commande → événements produits ou erreur. Cas limites : R3 (CP ou RTT à cheval sur deux années), R5 (plus de 48 h), R9 (deux années), R10 (scission). `HrCalendar` : jours fériés 2026 et 2027, Vendredi saint, 26 décembre, départements 57, 67 et 68, temps partiel. `LeaveBalance` : jours pris et planifiés selon la date du jour, recrédit, idempotence. Annulation d'un brouillon et d'une demande soumise. Conformité du seed à R8. |
+| **Domaine HrAdministration** (xUnit, sans base) | Une suite par règle, de R1 à R11. Le tableau 4.1 du PRD (temps partiel) est rejoué. Les agrégats event-sourcés sont testés en *given / when / then* : événements passés → commande → événements produits ou erreur. Cas limites : R3 (CP ou RTT à cheval sur deux années), R5 (plus de 48 h), R9 (deux années), R10 (arrêt au milieu d'un congé). `HrCalendar` : jours fériés 2026 et 2027, Vendredi saint, 26 décembre, départements 57, 67 et 68, temps partiel. `LeaveBalance` : jours pris et planifiés selon la date du jour, recrédit, idempotence. Annulation d'un brouillon et d'une demande soumise. Conformité du seed à R8. |
 | **Event store** (store en mémoire, sans Docker) | Conflit de version (409). Deux soumissions simultanées d'un même employé : une seule aboutit, l'autre reçoit un 409. Égalité entre projections reconstruites et projections inline. Seed idempotent. Les tests Testcontainers PostgreSQL sont une piste V2 (AD56, coupe K3). |
 | **API HrAdministration** (`WebApplicationFactory`) | Les 11 routes. Format ProblemDetails. Warnings renvoyés en 200 ou 201. 404 sur la ressource d'un autre employé. Liste blanche de la portée `agent` : `POST` et `PUT` d'un brouillon d'origine `Agent` autorisés, toute autre route en 403. La soumission déduit le solde une seule fois, même si elle est rejouée. `hr-record` ne renvoie que l'identité. |
 | **Assistant** | `IChatClient` simulé et scripté, `IHrAdministrationClient` simulé. Workflow des 4 tools : `POST` au premier tour, puis `PUT`. Aucun identifiant ni aucune identité envoyés au LLM. Le client ne propose que `POST` et `PUT`. 11ᵉ tour refusé. Messages fixes A1 et A9. Purge par `closure` et à 30 jours. Aucun contenu dans les journaux (vérifié avec un logger de test). |
@@ -621,3 +622,4 @@ Les décisions viennent de la session de conception du 01/11/2026. Chaque décis
 | AD65 | **Les 48 h de R5 sont comptées en jours civils** : une déclaration est tardive à partir du 3ᵉ jour après le premier jour de l'arrêt. Une période n'a pas d'heure de début, seulement une demi-journée, et le domaine reçoit la date du jour comme `LeaveBalance`. | Proposition de l'IA, **validée** : « Je les compte en jours civils "oui" » |
 | AD66 | **Un brouillon n'est enregistré qu'une fois le type et les deux bornes renseignés (PRD D60).** Ces champs sont donc obligatoires dans `LeaveRequest`. Avant cela, la saisie reste dans le formulaire, et l'agent pose une question (A4). Une route qui les reçoit incomplets répond 400 (requête mal formée). Un brouillon complet mais invalide reste enregistré avec ses signalements (A3). | « le brouillon est persisté lorsque toutes les informations nécessaires sont renseignées » ; la réponse 400 est une proposition de l'IA, **validée** (« Oui ca me convient ») |
 | AD67 | **Une période hors des années connues du calendrier férié (2025 à 2030) renvoie `period.outside_calendar`**, et non une exception, car une demande peut porter sur n'importe quelle date. `ILeaveCalendar.Covers` indique les dates couvertes et `CountingPolicy` applique la règle : `Flag.Inconsistency` sur un brouillon, refus à la soumission. Une période qui finit le 31/12/2030 reste décomptée. | « il faudrait un nouveau code d'erreur » ; le code et `Covers` sont une proposition de l'IA, **validée** (« Oui ca me convient ») |
+| AD68 | **L'écrasement remplace la demande, puis repose ce qui reste (PRD D61).** Une demande reste ainsi une seule période continue : R4, R7, R10 et le premier jour de `Taken` et `Planned` s'appliquent à chaque partie sans cas particulier. `Supersede()` remplace `Cancel()`, qui refuse un congé commencé (R7). `CarryOver()` ouvre un flux avec `LeaveRequestCarriedOver`, lié à la demande d'origine par `SourceRequestId` (C17), car `Submit()` refuserait une partie déjà commencée (R5). `DeductCarriedOver` remplace `Deduct`, qui refuserait un JRTT de l'année passée (R9). Tout tient dans la transaction de soumission de l'arrêt, le crédit avant les déductions. Les parties reposées reprennent le commentaire de la demande d'origine. | « d'abord on annule la demande de congés intégralement si chevauchement détecté » ; « on pose les congés initials qui débordent de l'arret avant et apres/ on preleve les compteurs de maniere iterative » ; les ajustements sont une proposition de l'IA, **validée** : « oui implemente la avec les 3 ajustements que t'as proposés » ; la reprise du commentaire est une proposition de l'IA, **validée** : « oui » |
